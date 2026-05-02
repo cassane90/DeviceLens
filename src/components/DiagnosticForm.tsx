@@ -133,25 +133,36 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
     </div>
   );
 
-  /* ── CAMERA SCREEN ─────────────────���──────────────────────────���────────────── */
+  /* ── CAMERA SCREEN ──────────────────────────────────────────────────────────── */
   if (step === 'camera') return (
     <div className="fixed inset-0 bg-black z-[300] flex flex-col">
-      <div className="relative flex-1">
+      {/* Video area */}
+      <div className="relative flex-1 overflow-hidden">
         <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
         <div className="crosshair-h" />
         <div className="crosshair-v" />
-        <div className="absolute inset-0 border-[2px] border-white/10 m-8 rounded-xl pointer-events-none" />
+        {/* Corner guide frame */}
+        <div className="absolute inset-8 border-2 border-white/20 rounded-xl pointer-events-none" />
       </div>
-      <div className="h-44 bg-black/90 flex flex-col items-center justify-center gap-3 px-6">
+
+      {/* Controls — fixed height so they're always visible */}
+      <div className="h-52 bg-black flex flex-col items-center justify-center gap-4 px-6 shrink-0">
+        {/* Shutter button — explicit pixel size to guarantee it renders */}
         <button
           onClick={capture}
-          aria-label="Capture"
-          className="w-18 h-18 rounded-full border-4 border-white p-1 active:scale-90 transition-all"
+          aria-label="Take photo"
+          style={{ width: 72, height: 72 }}
+          className="rounded-full border-4 border-white bg-transparent flex items-center justify-center active:scale-90 transition-transform"
         >
-          <div className="w-full h-full bg-white rounded-full" />
+          <div className="rounded-full bg-white" style={{ width: 52, height: 52 }} />
         </button>
-        <p className="text-sm text-white/70 font-medium">Tap to capture</p>
-        <button onClick={cancelCamera} className="text-sm text-white/40 hover:text-white transition-colors">Cancel</button>
+        <p className="text-sm font-medium text-white/60">Tap to take photo</p>
+        <button
+          onClick={cancelCamera}
+          className="px-6 py-2 rounded-lg text-sm font-semibold text-white/50 border border-white/20 hover:text-white hover:border-white/50 transition-colors"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
