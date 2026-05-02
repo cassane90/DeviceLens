@@ -72,7 +72,7 @@ VALIDATION:
 Return JSON matching the schema exactly.`;
 
   const model = ai.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.5-flash",
     generationConfig: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -233,7 +233,7 @@ Return JSON matching the schema exactly.`;
 export async function chatWithAssistant(message: string): Promise<ChatMessage> {
   const ai = getAI();
   const model = ai.getGenerativeModel({
-    model: 'gemini-1.5-flash',
+    model: 'gemini-2.5-flash',
     systemInstruction: 'You are a DeviceLens support assistant. Help users with device repair questions. Be clear, practical, and friendly.',
   });
 
