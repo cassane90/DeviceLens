@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>DeviceLens | Device Diagnostics</title>
+    <link rel="manifest" href="metadata.json" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet" />
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              /* Brand */
+              primary: "#2563eb",
+              "primary-50": "#eff6ff",
+              "primary-100": "#dbeafe",
+              "primary-600": "#2563eb",
+              "primary-700": "#1d4ed8",
+              /* Dark mode accent (softer blue) */
+              accent: "#60a5fa",
+              /* Light mode semantic */
+              success: "#16a34a",
+              warning: "#d97706",
+              danger: "#dc2626",
+              /* Dark mode semantic (brighter) */
+              "success-d": "#4ade80",
+              "warning-d": "#fbbf24",
+              "danger-d": "#f87171",
+              /* Light mode surfaces */
+              "dl-bg": "#f8fafc",
+              "dl-card": "#ffffff",
+              "dl-card2": "#f1f5f9",
+              "dl-border": "#e2e8f0",
+              /* Dark mode surfaces */
+              "dl-dark": "#0c0d12",
+              "dl-dark-s": "#14161f",
+              "dl-dark-s2": "#1e2130",
+              "dl-dark-b": "#2a2f45",
+              /* Dark mode text */
+              "dl-dt": "#eaedf5",
+              "dl-dt2": "#7b85a0",
+            },
+            fontFamily: {
+              sans: ['"Plus Jakarta Sans"', "Inter", "system-ui", "sans-serif"],
+              mono: ['"JetBrains Mono"', '"Fira Code"', "monospace"],
+            },
+            boxShadow: {
+              soft: "0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05)",
+              card: "0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -1px rgba(0,0,0,0.04)",
+              elevated: "0 10px 25px -5px rgba(0,0,0,0.1), 0 4px 10px -5px rgba(0,0,0,0.06)",
+              "glow-sm": "0 0 12px rgba(96,165,250,0.2)",
+              glow: "0 0 20px rgba(96,165,250,0.3)",
+              "glow-lg": "0 0 40px rgba(96,165,250,0.25)",
+              "glow-green": "0 0 20px rgba(74,222,128,0.3)",
+            },
+            borderRadius: {
+              DEFAULT: "8px",
+              sm: "4px",
+              md: "8px",
+              lg: "10px",
+              xl: "14px",
+              "2xl": "18px",
+              "3xl": "24px",
+              full: "9999px",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      * { font-family: "Plus Jakarta Sans", Inter, system-ui, sans-serif; }
+      code, pre, .font-mono { font-family: "JetBrains Mono", "Fira Code", monospace; }
+
+      html, body {
+        height: 100%;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        scroll-behavior: smooth;
+      }
+
+      /* Light mode defaults */
+      body {
+        background-color: #f8fafc;
+        color: #111827;
+        transition: background-color 0.25s ease, color 0.25s ease;
+      }
+
+      /* Dark mode */
+      html.dark body {
+        background-color: #0c0d12;
+        color: #eaedf5;
+      }
+
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+      /* Camera crosshair */
+      .crosshair-h {
+        position: absolute; top: 50%; left: 0;
+        width: 100%; height: 1px;
+        background: rgba(239,68,68,0.8);
+        transform: translateY(-50%); z-index: 10;
+      }
+      .crosshair-v {
+        position: absolute; left: 50%; top: 0;
+        height: 100%; width: 1px;
+        background: rgba(239,68,68,0.8);
+        transform: translateX(-50%); z-index: 10;
+      }
+
+      /* Dark mode nav glow indicator */
+      .dark .nav-active-dot {
+        position: absolute;
+        bottom: -2px; left: 50%;
+        transform: translateX(-50%);
+        width: 20px; height: 2px;
+        background: #60a5fa;
+        border-radius: 2px;
+        box-shadow: 0 0 8px rgba(96,165,250,0.8);
+      }
+
+      /* Light mode nav pill */
+      .nav-pill {
+        position: absolute;
+        inset: 0;
+        background: #eff6ff;
+        border-radius: 10px;
+        z-index: 0;
+      }
+
+      /* Smooth page transitions */
+      .page-enter {
+        animation: pageIn 0.2s ease forwards;
+      }
+      @keyframes pageIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      /* Risk level badge colors - light */
+      .risk-low    { background: #dcfce7; color: #15803d; border-color: #86efac; }
+      .risk-moderate { background: #fef9c3; color: #854d0e; border-color: #fde68a; }
+      .risk-high   { background: #ffedd5; color: #9a3412; border-color: #fdba74; }
+      .risk-extreme { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+
+      /* Risk level badge colors - dark */
+      .dark .risk-low    { background: rgba(74,222,128,0.12); color: #4ade80; border-color: rgba(74,222,128,0.25); }
+      .dark .risk-moderate { background: rgba(251,191,36,0.12); color: #fbbf24; border-color: rgba(251,191,36,0.25); }
+      .dark .risk-high   { background: rgba(251,146,60,0.12); color: #fb923c; border-color: rgba(251,146,60,0.25); }
+      .dark .risk-extreme { background: rgba(248,113,113,0.12); color: #f87171; border-color: rgba(248,113,113,0.25); }
+    </style>
+  </head>
+  <body class="selection:bg-primary/20">
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+  </body>
+</html>
