@@ -17,9 +17,12 @@ const CATEGORY_ICONS: Record<DeviceCategory, string> = {
   [DeviceCategory.OTHER]:     'devices_other',
 };
 
+const isTouchDevice = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
 const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: () => void }> = ({ onSuccess, onCancel }) => {
   const { refreshState } = useApp();
   const [analyzing, setAnalyzing] = useState(false);
+  const [isMobile] = useState(isTouchDevice);
   const [images, setImages] = useState<string[]>([]);
   const [category, setCategory] = useState<DeviceCategory>(DeviceCategory.PHONE);
   const [desc, setDesc] = useState('');
@@ -146,30 +149,28 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
           {/* Add-photo buttons — only show while under limit */}
           {images.length < 5 && (
             <>
-              {/*
-                CAMERA button — uses native <input capture="environment">.
-                On phones this opens the camera app directly.
-                On desktop it opens a file picker (no broken custom UI).
-              */}
-              <button
-                onClick={() => cameraInputRef.current?.click()}
-                aria-label="Take a photo"
-                className="
-                  shrink-0 w-24 h-32 rounded-xl border-2 border-dashed
-                  border-gray-200 dark:border-dl-dark-b
-                  flex flex-col items-center justify-center gap-2
-                  hover:border-primary dark:hover:border-accent
-                  hover:bg-primary/5 dark:hover:bg-accent/5
-                  text-gray-400 dark:text-dl-dt2
-                  hover:text-primary dark:hover:text-accent
-                  transition-all active:scale-95
-                "
-              >
-                <span className="material-symbols-outlined text-3xl">photo_camera</span>
-                <span className="text-[10px] font-semibold leading-tight text-center px-1">Take Photo</span>
-              </button>
+              {/* CAMERA button — only shown on touch/mobile devices where capture="environment" opens the camera app */}
+              {isMobile && (
+                <button
+                  onClick={() => cameraInputRef.current?.click()}
+                  aria-label="Take a photo"
+                  className="
+                    shrink-0 w-24 h-32 rounded-xl border-2 border-dashed
+                    border-gray-200 dark:border-dl-dark-b
+                    flex flex-col items-center justify-center gap-2
+                    hover:border-primary dark:hover:border-accent
+                    hover:bg-primary/5 dark:hover:bg-accent/5
+                    text-gray-400 dark:text-dl-dt2
+                    hover:text-primary dark:hover:text-accent
+                    transition-all active:scale-95
+                  "
+                >
+                  <span className="material-symbols-outlined text-3xl">photo_camera</span>
+                  <span className="text-[10px] font-semibold leading-tight text-center px-1">Take Photo</span>
+                </button>
+              )}
 
-              {/* GALLERY / file upload button */}
+              {/* GALLERY / file upload button — always visible */}
               <button
                 onClick={() => galleryInputRef.current?.click()}
                 aria-label="Choose from gallery or files"
