@@ -78,13 +78,14 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
     } catch (e) {
       logError(e, 'DiagnosticForm.handleAudit');
       let msg = 'Analysis failed. Please try again.';
-      if (e instanceof AppError) msg = e.userMessage;
-      else if (e instanceof Error && e.message.includes('429')) msg = 'DeviceLens is at capacity. Please try again in a minute.';
-      setAnalyzing(false);
-      // Show actual error detail if it's not a known user-friendly type
-      if (!(e instanceof AppError) && e instanceof Error && !e.message.includes('429')) {
-        msg = `Analysis failed: ${e.message.slice(0, 120)}`;
+      if (e instanceof AppError) {
+        msg = e.userMessage;
+      } else if (e instanceof Error) {
+        if (e.message.includes('429'))    msg = 'DeviceLens is busy — please try again in a minute.';
+        else if (e.message.includes('timed out')) msg = 'Analysis timed out — please try again.';
+        else msg = e.message.slice(0, 140);
       }
+      setAnalyzing(false);
       setErrorMsg(msg);
     }
   };

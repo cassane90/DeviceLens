@@ -2,8 +2,6 @@ import React from 'react';
 import { QueryRecord, RiskLevel } from '../types';
 import { formatCurrency } from '../constants';
 import { useApp } from '../providers/AppProvider';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 
 interface ResultCardProps {
   record: QueryRecord;
@@ -49,6 +47,11 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
     if (!user?.is_premium) { setShowPremiumModal(true); return; }
     const el = document.getElementById('report-export');
     if (!el) return;
+    // Lazy-load heavy PDF libs only when actually needed (~200 KB saved on initial load)
+    const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+      import('jspdf'),
+      import('html2canvas'),
+    ]);
     const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
     const pdf = new jsPDF('p', 'mm', 'a4');
     const w = pdf.internal.pageSize.getWidth();
