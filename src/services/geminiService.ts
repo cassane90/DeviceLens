@@ -178,9 +178,11 @@ Return JSON matching the schema exactly.`;
   try {
     const response = await model.generateContent([
       prompt,
-      ...images.map(img => ({
-        inlineData: { mimeType: "image/jpeg", data: img.split(',')[1] },
-      })),
+      ...images.map(img => {
+        const mimeMatch = img.match(/^data:([^;]+);base64,/);
+        const mimeType = (mimeMatch?.[1] || 'image/jpeg') as string;
+        return { inlineData: { mimeType, data: img.split(',')[1] } };
+      }),
     ]);
 
     const text = response.response.text();
@@ -222,8 +224,9 @@ Return JSON matching the schema exactly.`;
     return result;
 
   } catch (err: unknown) {
-    console.error("DeviceLens diagnosis error:", err);
-    throw new Error(String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("DeviceLens diagnosis error:", msg, err);
+    throw new Error(msg);
   }
 }
 
