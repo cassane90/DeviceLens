@@ -19,20 +19,21 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onNavigate }) =>
       {/* Light: white card with shadow │ Dark: dark surface with bottom accent line */}
       <header className="
         sticky top-0 z-[100]
-        bg-white dark:bg-dl-dark-s
+        bg-white/80 dark:bg-dl-dark-s/80
+        backdrop-blur-lg
         shadow-soft dark:shadow-none
-        dark:border-b dark:border-dl-dark-b
+        border-b border-gray-100/80 dark:border-dl-dark-b/80
         px-5 py-3.5 flex items-center justify-between
         transition-colors duration-300
       ">
         {/* Logo */}
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-primary/10 dark:bg-accent/10 rounded-lg flex items-center justify-center">
-            <span className="material-symbols-outlined text-primary dark:text-accent text-lg">devices</span>
+          <div className="w-8 h-8 bg-gradient-to-br from-primary to-blue-600 rounded-lg flex items-center justify-center shadow-sm">
+            <span className="material-symbols-outlined text-white text-lg">document_scanner</span>
           </div>
           <div>
             <h1 className="text-sm font-extrabold text-gray-900 dark:text-dl-dt tracking-tight leading-none">DeviceLens</h1>
-            <p className="text-[10px] text-gray-400 dark:text-dl-dt2 leading-none mt-0.5">Device Diagnostics</p>
+            <p className="text-[10px] text-gray-400 dark:text-dl-dt2 leading-none mt-0.5">AI Device Diagnostics</p>
           </div>
         </div>
 

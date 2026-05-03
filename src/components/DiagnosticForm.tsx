@@ -5,6 +5,9 @@ import { supabaseService } from '../services/supabaseService';
 import { cacheService } from '../services/cacheService';
 import { useApp } from '../providers/AppProvider';
 import { AppError, logError } from '../utils/errors';
+import { compressImage } from '../utils/imageUtils';
+import { findNearbyRepairShops } from '../services/placesService';
+import { canScan, recordScan, getScansUsedToday, getDailyLimit, timeUntilReset } from '../services/scanLimitService';
 import ToastNotification from './ToastNotification';
 
 const CATEGORY_ICONS: Record<DeviceCategory, string> = {
@@ -20,7 +23,7 @@ const CATEGORY_ICONS: Record<DeviceCategory, string> = {
 const isTouchDevice = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: () => void }> = ({ onSuccess, onCancel }) => {
-  const { refreshState } = useApp();
+  const { refreshState, user, setShowPremiumModal } = useApp();
   const [analyzing, setAnalyzing] = useState(false);
   const [isMobile] = useState(isTouchDevice);
   const [images, setImages] = useState<string[]>([]);
@@ -41,20 +44,32 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
     for (let i = 0; i < toRead; i++) {
       const file = files[i];
       const reader = new FileReader();
-      reader.onloadend = () => setImages(prev => [...prev, reader.result as string]);
+      reader.onloadend = async () => {
+        const compressed = await compressImage(reader.result as string);
+        setImages(prev => [...prev, compressed]);
+      };
       reader.readAsDataURL(file);
     }
   };
 
   const handleAudit = async () => {
     if (images.length === 0) return;
+    if (!canScan(user?.is_premium ?? false)) {
+      setErrorMsg(`Daily limit reached — resets in ${timeUntilReset()}. Upgrade to Pro for 250 scans/day.`);
+      return;
+    }
     setErrorMsg(null);
     setAnalyzing(true);
+    recordScan();
 
     let location: { latitude: number; longitude: number } | undefined;
     try {
       const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 4000, enableHighAccuracy: false })
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          timeout: 10000,
+          enableHighAccuracy: true,
+          maximumAge: 0,
+        })
       );
       location = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
     } catch { /* proceed without location */ }
@@ -67,8 +82,23 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
         setStatus('Loading saved results…');
         result = cached;
       } else {
-        setStatus('Analyzing your device with AI…');
-        result = await runForensicAudit(category, desc, images, location, manualName);
+        // Run AI analysis and Places lookup in parallel
+        setStatus('Identifying your device…');
+        const [aiResult, nearbyShops] = await Promise.all([
+          runForensicAudit(category, desc, images, location, manualName),
+          location ? findNearbyRepairShops(location.latitude, location.longitude) : Promise.resolve([]),
+        ]);
+        result = aiResult;
+        // Replace AI-hallucinated shops with real Places API results
+        if (nearbyShops.length > 0) {
+          result.recommended_repair_hubs = nearbyShops.map(s => ({
+            name: s.name,
+            address: s.address,
+            uri: s.uri,
+            rating: s.rating ? `${s.rating} ★ (${s.reviewCount})` : '',
+            specialty: s.isOpenNow === true ? 'Open now' : s.isOpenNow === false ? 'Closed now' : '',
+          }));
+        }
         cacheService.set(category, desc, images, result, location?.latitude, location?.longitude);
       }
       setStatus('Saving…');
@@ -100,10 +130,10 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
         <div className="absolute inset-0 rounded-full border-2 border-primary/20 dark:border-accent/20 border-t-primary dark:border-t-accent animate-spin" />
       </div>
       <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-dl-dt">Analyzing device</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-dl-dt">Looking at your device…</h2>
         <p className="text-sm text-gray-500 dark:text-dl-dt2 mt-1">{status}</p>
       </div>
-      <p className="text-xs text-gray-400 dark:text-dl-dt2">This usually takes 15–30 seconds</p>
+      <p className="text-xs text-gray-400 dark:text-dl-dt2">Usually done in under 15 seconds</p>
     </div>
   );
 
@@ -114,8 +144,8 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
       {/* Header */}
       <div className="flex items-center justify-between pt-1">
         <div>
-          <h2 className="text-2xl font-extrabold text-gray-900 dark:text-dl-dt tracking-tight">What's the issue?</h2>
-          <p className="text-sm text-gray-400 dark:text-dl-dt2 mt-0.5">Add photos and describe the problem</p>
+          <h2 className="text-2xl font-extrabold text-gray-900 dark:text-dl-dt tracking-tight">What's broken?</h2>
+          <p className="text-sm text-gray-400 dark:text-dl-dt2 mt-0.5">Show us a photo and we'll figure it out</p>
         </div>
         <button onClick={onCancel} className="text-sm text-gray-400 dark:text-dl-dt2 hover:text-gray-700 dark:hover:text-dl-dt font-medium transition-colors">
           Cancel
@@ -301,13 +331,39 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
 
       {/* ── SUBMIT ──────────────────────────────────────────────────────────────── */}
       <div className="space-y-2 pt-2">
+        {/* Scan counter */}
+        {(() => {
+          const used = getScansUsedToday();
+          const limit = getDailyLimit(user?.is_premium ?? false);
+          const remaining = limit - used;
+          const nearLimit = remaining <= 3 && remaining > 0;
+          const atLimit = remaining <= 0;
+          return (
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs text-gray-400 dark:text-dl-dt2">
+                {atLimit
+                  ? `Limit reached · resets in ${timeUntilReset()}`
+                  : `${remaining} of ${limit} scans left today`}
+              </p>
+              {nearLimit && !user?.is_premium && (
+                <button
+                  onClick={() => setShowPremiumModal(true)}
+                  className="text-xs font-semibold text-primary dark:text-accent hover:underline"
+                >
+                  Go Pro →
+                </button>
+              )}
+            </div>
+          );
+        })()}
+
         {images.length === 0 && (
           <p className="text-center text-xs text-gray-400 dark:text-dl-dt2 font-medium">
-            Add at least one photo to start the analysis
+            Add at least one photo to start
           </p>
         )}
         <button
-          disabled={images.length === 0}
+          disabled={images.length === 0 || !canScan(user?.is_premium ?? false)}
           onClick={handleAudit}
           className="
             w-full py-4 rounded-xl font-bold text-base text-white

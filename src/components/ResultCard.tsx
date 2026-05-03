@@ -41,10 +41,10 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
   const [diyOpen, setDiyOpen] = React.useState(false);
   const [diyConfirm, setDiyConfirm] = React.useState(false);
   const [jsonCopied, setJsonCopied] = React.useState(false);
+  const [shared, setShared] = React.useState(false);
   const repairHubsRef = React.useRef<HTMLDivElement>(null);
 
   const exportReport = async () => {
-    if (!user?.is_premium) { setShowPremiumModal(true); return; }
     const el = document.getElementById('report-export');
     if (!el) return;
     // Lazy-load heavy PDF libs only when actually needed (~200 KB saved on initial load)
@@ -70,6 +70,19 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
     }
     setJsonCopied(true);
     setTimeout(() => setJsonCopied(false), 2000);
+  };
+
+  const handleShare = async () => {
+    const text = `🔍 DeviceLens Diagnosis\n${brand} ${model} · ${risk_level} risk\n${recommended_action}\nRepair estimate: ${record.ai_response.potential_fix_cost_estimate ?? 'See full report'}\n\nDiagnosed with DeviceLens — https://devicelens.vercel.app`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `${brand} ${model} Diagnosis`, text });
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+      setShared(true);
+      setTimeout(() => setShared(false), 2000);
+    } catch { /* user cancelled share */ }
   };
 
   return (
@@ -163,8 +176,8 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
               <span className="material-symbols-outlined text-warning dark:text-warning-d text-base">warning</span>
               <h3 className="font-semibold text-sm text-gray-900 dark:text-dl-dt">Known failure points</h3>
             </div>
-            <div className="p-4 relative">
-              <ul className={`space-y-2 ${!user?.is_premium ? 'blur-sm select-none' : ''}`}>
+            <div className="p-4">
+              <ul className="space-y-2">
                 {common_failures.map((fail, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-warning dark:bg-warning-d mt-1.5 shrink-0" />
@@ -172,15 +185,6 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
                   </li>
                 ))}
               </ul>
-              {!user?.is_premium && (
-                <button
-                  onClick={() => setShowPremiumModal(true)}
-                  className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-white/50 dark:bg-dl-dark-s/50 backdrop-blur-[3px] hover:bg-white/40 dark:hover:bg-dl-dark-s/40 transition-colors"
-                >
-                  <span className="material-symbols-outlined text-primary dark:text-accent text-2xl">lock</span>
-                  <p className="text-xs font-semibold text-primary dark:text-accent">Unlock with Pro</p>
-                </button>
-              )}
             </div>
           </section>
         )}
@@ -270,16 +274,25 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
                 <a key={i} href={hub.uri} target="_blank" rel="noopener noreferrer"
                   className="block p-4 rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b hover:border-primary/30 dark:hover:border-accent/30 shadow-soft dark:shadow-none transition-all group"
                 >
-                  <div className="flex justify-between items-start">
-                    <p className="font-semibold text-sm text-gray-900 dark:text-dl-dt group-hover:text-primary dark:group-hover:text-accent">{hub.name}</p>
+                  <div className="flex justify-between items-start gap-2">
+                    <p className="font-semibold text-sm text-gray-900 dark:text-dl-dt group-hover:text-primary dark:group-hover:text-accent leading-snug">{hub.name}</p>
                     {hub.rating && (
-                      <span className="flex items-center gap-1 text-xs text-warning dark:text-warning-d font-medium">
+                      <span className="flex items-center gap-0.5 text-xs text-warning dark:text-warning-d font-semibold shrink-0">
                         <span className="material-symbols-outlined text-xs">star</span>
                         {hub.rating}
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-gray-400 dark:text-dl-dt2 mt-1 truncate">{hub.address}</p>
+                  {hub.specialty && (
+                    <span className={`inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      hub.specialty.toLowerCase().includes('open')
+                        ? 'bg-green-50 dark:bg-success-d/10 text-success dark:text-success-d'
+                        : 'bg-red-50 dark:bg-danger-d/10 text-danger dark:text-danger-d'
+                    }`}>
+                      {hub.specialty}
+                    </span>
+                  )}
                 </a>
               ))
             ) : (
@@ -405,18 +418,25 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
         className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-4 bg-white/95 dark:bg-dl-dark-s/95 backdrop-blur-md border-t border-gray-100 dark:border-dl-dark-b flex gap-3 z-50"
       >
         <button
-          onClick={handleCopy}
-          className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-dl-dark-b text-gray-700 dark:text-dl-dt text-sm font-semibold flex items-center justify-center gap-2 hover:bg-gray-50 dark:hover:bg-dl-dark-s2 transition-all"
+          onClick={handleShare}
+          className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-dl-dark-b text-gray-700 dark:text-dl-dt text-sm font-semibold flex items-center justify-center gap-2 hover:bg-gray-50 dark:hover:bg-dl-dark-s2 transition-all active:scale-[0.98]"
         >
-          <span className="material-symbols-outlined text-base">{jsonCopied ? 'check' : 'content_copy'}</span>
-          {jsonCopied ? 'Copied!' : 'Copy JSON'}
+          <span className="material-symbols-outlined text-base">{shared ? 'check' : 'share'}</span>
+          {shared ? 'Shared!' : 'Share'}
+        </button>
+        <button
+          onClick={handleCopy}
+          className="py-3 px-4 rounded-xl border border-gray-200 dark:border-dl-dark-b text-gray-500 dark:text-dl-dt2 text-sm flex items-center justify-center hover:bg-gray-50 dark:hover:bg-dl-dark-s2 transition-all"
+          title="Copy raw JSON"
+        >
+          <span className="material-symbols-outlined text-base">{jsonCopied ? 'check' : 'data_object'}</span>
         </button>
         <button
           onClick={exportReport}
           className="flex-1 py-3 rounded-xl bg-primary dark:bg-accent text-white dark:text-dl-dark text-sm font-bold flex items-center justify-center gap-2 shadow-card dark:shadow-glow hover:bg-primary-700 dark:hover:bg-blue-300 transition-all active:scale-[0.98]"
         >
-          <span className="material-symbols-outlined text-base">{user?.is_premium ? 'download' : 'lock'}</span>
-          {user?.is_premium ? 'Export PDF' : 'Upgrade to Pro'}
+          <span className="material-symbols-outlined text-base">download</span>
+          Export PDF
         </button>
       </footer>
     </div>
