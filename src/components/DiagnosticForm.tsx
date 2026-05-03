@@ -116,10 +116,20 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
 
         cacheService.set(category, desc, images, result, location?.latitude, location?.longitude);
       }
-      setStatus('Saving…');
-      const log = await supabaseService.saveLog(category, desc, images, result);
-      await refreshState();
-      onSuccess(log);
+      // Show results immediately — don't block on cloud save
+      const localLog = {
+        id: `local_${Date.now()}`,
+        created_at: new Date().toISOString(),
+        category,
+        description: desc,
+        photo_urls: images.slice(0, 1),
+        ai_response: result,
+      };
+      onSuccess(localLog);
+      // Save to Supabase in background — silent fail is fine, cache has the result
+      supabaseService.saveLog(category, desc, images, result)
+        .then(() => refreshState())
+        .catch(() => {});
     } catch (e) {
       logError(e, 'DiagnosticForm.handleAudit');
       let msg = 'Analysis failed. Please try again.';
