@@ -7,6 +7,7 @@ import { useApp } from '../providers/AppProvider';
 import { AppError, logError } from '../utils/errors';
 import { compressImage } from '../utils/imageUtils';
 import { findNearbyRepairShops } from '../services/placesService';
+import { enrichDiyGuides } from '../services/youtubeService';
 import { canScan, recordScan, getScansUsedToday, getDailyLimit, timeUntilReset } from '../services/scanLimitService';
 import ToastNotification from './ToastNotification';
 
@@ -89,16 +90,30 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
           location ? findNearbyRepairShops(location.latitude, location.longitude) : Promise.resolve([]),
         ]);
         result = aiResult;
-        // Replace AI-hallucinated shops with real Places API results
+
+        // Replace AI-hallucinated shops with real Places API results + trust signals
         if (nearbyShops.length > 0) {
           result.recommended_repair_hubs = nearbyShops.map(s => ({
             name: s.name,
             address: s.address,
             uri: s.uri,
-            rating: s.rating ? `${s.rating} ★ (${s.reviewCount})` : '',
+            rating: s.rating ? `${s.rating} (${s.reviewCount} reviews)` : '',
             specialty: s.isOpenNow === true ? 'Open now' : s.isOpenNow === false ? 'Closed now' : '',
+            topReview: s.topReview,
+            reviewCount: s.reviewCount,
+            verified: true,
           }));
         }
+
+        // Enrich DIY guide links with real YouTube video IDs when possible
+        if (result.diy_guides?.length) {
+          result.diy_guides = await enrichDiyGuides(
+            result.diy_guides,
+            `${result.brand} ${result.model}`,
+            desc
+          );
+        }
+
         cacheService.set(category, desc, images, result, location?.latitude, location?.longitude);
       }
       setStatus('Saving…');

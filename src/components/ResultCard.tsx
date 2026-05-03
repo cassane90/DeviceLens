@@ -209,6 +209,20 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
               <p className="font-bold text-success dark:text-success-d text-sm font-mono">{formatCurrency(resale_value.profit_potential, currency_code)}</p>
             </div>
           </div>
+          <div className="px-4 pb-3 flex items-center justify-between gap-3 border-t border-gray-50 dark:border-dl-dark-b pt-3">
+            <p className="text-[10px] text-gray-400 dark:text-dl-dt2">
+              AI market estimate — verify before selling
+            </p>
+            <a
+              href={`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(`${brand} ${model}`)}&LH_Sold=1&LH_Complete=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] font-semibold text-primary dark:text-accent hover:underline shrink-0 flex items-center gap-0.5"
+            >
+              Check eBay sold listings
+              <span className="material-symbols-outlined text-[10px]">open_in_new</span>
+            </a>
+          </div>
         </section>
 
         {/* ── Recommendation ── */}
@@ -275,7 +289,15 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
                   className="block p-4 rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b hover:border-primary/30 dark:hover:border-accent/30 shadow-soft dark:shadow-none transition-all group"
                 >
                   <div className="flex justify-between items-start gap-2">
-                    <p className="font-semibold text-sm text-gray-900 dark:text-dl-dt group-hover:text-primary dark:group-hover:text-accent leading-snug">{hub.name}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm text-gray-900 dark:text-dl-dt group-hover:text-primary dark:group-hover:text-accent leading-snug">{hub.name}</p>
+                      {hub.verified && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-primary dark:text-accent mt-0.5">
+                          <span className="material-symbols-outlined text-[10px]">verified</span>
+                          Verified on Google Maps
+                        </span>
+                      )}
+                    </div>
                     {hub.rating && (
                       <span className="flex items-center gap-0.5 text-xs text-warning dark:text-warning-d font-semibold shrink-0">
                         <span className="material-symbols-outlined text-xs">star</span>
@@ -284,14 +306,21 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
                     )}
                   </div>
                   <p className="text-xs text-gray-400 dark:text-dl-dt2 mt-1 truncate">{hub.address}</p>
-                  {hub.specialty && (
-                    <span className={`inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                      hub.specialty.toLowerCase().includes('open')
-                        ? 'bg-green-50 dark:bg-success-d/10 text-success dark:text-success-d'
-                        : 'bg-red-50 dark:bg-danger-d/10 text-danger dark:text-danger-d'
-                    }`}>
-                      {hub.specialty}
-                    </span>
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    {hub.specialty && (
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        hub.specialty.toLowerCase().includes('open')
+                          ? 'bg-green-50 dark:bg-success-d/10 text-success dark:text-success-d'
+                          : 'bg-red-50 dark:bg-danger-d/10 text-danger dark:text-danger-d'
+                      }`}>
+                        {hub.specialty}
+                      </span>
+                    )}
+                  </div>
+                  {hub.topReview && (
+                    <p className="text-[11px] text-gray-400 dark:text-dl-dt2 mt-2 italic leading-snug line-clamp-2">
+                      "{hub.topReview}"
+                    </p>
                   )}
                 </a>
               ))
@@ -387,24 +416,31 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
               {diy_guides && diy_guides.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs text-gray-400 dark:text-dl-dt2 font-medium">Video guides</p>
-                  {diy_guides.map((guide, i) => (
-                    <a key={i} href={guide.uri} target="_blank" rel="noopener noreferrer"
-                      className="flex items-start gap-3 p-3.5 rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b hover:border-primary/30 dark:hover:border-accent/30 shadow-soft dark:shadow-none transition-all group"
-                    >
-                      <div className="w-9 h-9 rounded-lg bg-red-50 dark:bg-danger-d/10 flex items-center justify-center shrink-0">
-                        <span className="material-symbols-outlined text-red-500 dark:text-danger-d text-xl">play_circle</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 dark:text-dl-dt group-hover:text-primary dark:group-hover:text-accent truncate">{guide.title}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[10px] text-gray-400 dark:text-dl-dt2">{guide.platform}</span>
-                          <span className="text-[10px] text-gray-300 dark:text-dl-dt2">·</span>
-                          <span className="text-[10px] text-gray-400 dark:text-dl-dt2">{guide.difficulty}</span>
+                  {diy_guides.map((guide, i) => {
+                    const isVideo = guide.uri.includes('watch?v=');
+                    return (
+                      <a key={i} href={guide.uri} target="_blank" rel="noopener noreferrer"
+                        className="flex items-start gap-3 p-3.5 rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b hover:border-primary/30 dark:hover:border-accent/30 shadow-soft dark:shadow-none transition-all group"
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-red-50 dark:bg-danger-d/10 flex items-center justify-center shrink-0">
+                          <span className="material-symbols-outlined text-red-500 dark:text-danger-d text-xl">
+                            {isVideo ? 'play_circle' : 'youtube_searched_for'}
+                          </span>
                         </div>
-                      </div>
-                      <span className="material-symbols-outlined text-gray-300 dark:text-dl-dt2 shrink-0">open_in_new</span>
-                    </a>
-                  ))}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-dl-dt group-hover:text-primary dark:group-hover:text-accent truncate">{guide.title}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-gray-400 dark:text-dl-dt2">
+                              {isVideo ? 'YouTube video' : 'YouTube search'}
+                            </span>
+                            <span className="text-[10px] text-gray-300 dark:text-dl-dt2">·</span>
+                            <span className="text-[10px] text-gray-400 dark:text-dl-dt2">{guide.difficulty}</span>
+                          </div>
+                        </div>
+                        <span className="material-symbols-outlined text-gray-300 dark:text-dl-dt2 shrink-0">open_in_new</span>
+                      </a>
+                    );
+                  })}
                 </div>
               )}
             </div>

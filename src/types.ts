@@ -1,4 +1,3 @@
-
 export enum UserRole {
   TECH = 'Tech Professional',
   AUDITOR = 'Business Owner',
@@ -30,6 +29,9 @@ export interface RepairHub {
   uri: string;
   rating: string;
   specialty: string;
+  topReview?: string;
+  reviewCount?: number;
+  verified?: boolean;
 }
 
 export interface DIYGuide {
