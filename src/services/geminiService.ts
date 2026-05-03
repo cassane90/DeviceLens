@@ -1,6 +1,20 @@
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { DeviceCategory, DiagnosisResult, ChatMessage } from "../types";
 
+const AMAZON_TAG = 'devicelens-20';
+
+function addAffiliateTag(url: string): string {
+  if (!url) return url;
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('amazon.')) {
+      u.searchParams.set('tag', AMAZON_TAG);
+      return u.toString();
+    }
+  } catch { /* invalid URL — return as-is */ }
+  return url;
+}
+
 function getAI() {
   return new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
 }
@@ -171,6 +185,17 @@ Return JSON matching schema exactly. Be concise — short strings, no padding.`;
         return hub;
       });
     }
+
+    // Inject Amazon affiliate tag into all Amazon URLs
+    result.purchase_options = result.purchase_options?.map(opt => ({
+      ...opt, uri: addAffiliateTag(opt.uri),
+    })) ?? [];
+    result.parts_retailers = result.parts_retailers?.map(part => ({
+      ...part, uri: addAffiliateTag(part.uri),
+    })) ?? [];
+    result.required_tools = result.required_tools?.map(tool => ({
+      ...tool, link: tool.link ? addAffiliateTag(tool.link) : tool.link,
+    })) ?? [];
 
     return result;
 
