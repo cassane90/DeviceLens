@@ -38,7 +38,7 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
     const likely = result.likely_causes.map(item => `- ${item.cause} (${item.likelihood}): ${item.reason}`).join("\n");
     const text = [
       `DeviceLens assessment: ${result.brand} ${result.model}`,
-      `Confidence: ${result.confidence_score}%`,
+      `Identity: ${result.identity_status} (${result.confidence_score}% exact-model confidence)`,
       `Risk: ${result.risk_level}`,
       "",
       result.summary,
@@ -141,7 +141,23 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
           <p className="text-lg font-bold text-white dark:text-dl-dt leading-relaxed mt-2">{result.summary}</p>
         </section>
 
-        <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b overflow-hidden">
+        {result.diagnostic_evidence.length > 0 && (
+          <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b overflow-hidden">
+            <div className="p-4 border-b border-gray-100 dark:border-dl-dark-b">
+              <h3 className="font-bold text-sm">Evidence from your checks</h3>
+            </div>
+            <ul className="p-4 space-y-2">
+              {result.diagnostic_evidence.map((item, index) => (
+                <li key={index} className="flex gap-2 text-sm text-gray-600 dark:text-dl-dt2">
+                  <span className="material-symbols-outlined text-success dark:text-success-d text-base">fact_check</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+                <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b overflow-hidden">
           <div className="p-4 border-b border-gray-100 dark:border-dl-dark-b">
             <h3 className="font-bold text-sm">Likely causes</h3>
           </div>
@@ -282,7 +298,21 @@ const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
           </div>
         </section>
 
-        <section className="rounded-xl bg-gray-100 dark:bg-dl-dark-s2 p-4">
+        {result.unresolved_uncertainties.length > 0 && (
+          <section className="rounded-2xl border border-amber-200 dark:border-warning-d/20 bg-amber-50 dark:bg-warning-d/10 p-4">
+            <h3 className="font-bold text-sm text-warning dark:text-warning-d">What remains uncertain</h3>
+            <ul className="mt-2 space-y-2">
+              {result.unresolved_uncertainties.map((item, index) => (
+                <li key={index} className="text-xs text-amber-800 dark:text-warning-d/90 flex gap-2">
+                  <span>•</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+                <section className="rounded-xl bg-gray-100 dark:bg-dl-dark-s2 p-4">
           <p className="text-[11px] text-gray-500 dark:text-dl-dt2 leading-relaxed">
             DeviceLens provides AI-assisted triage and rough estimates. Photos cannot prove every internal fault, and prices vary by location, parts quality, model variant, and technician. Verify important repair, safety, and purchasing decisions independently.
           </p>
