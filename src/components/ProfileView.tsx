@@ -34,8 +34,8 @@ const ProfileView: React.FC = () => {
           className="w-full p-4 rounded-2xl bg-primary dark:bg-dl-dark-s2 border border-primary/20 dark:border-accent/20 flex items-center justify-between shadow-card dark:shadow-glow hover:scale-[1.01] active:scale-[0.99] transition-all"
         >
           <div className="text-left">
-            <p className="text-xs text-white/70 dark:text-accent font-medium">DeviceLens Pro</p>
-            <p className="font-bold text-white dark:text-dl-dt text-sm mt-0.5">Unlock PDF exports & more →</p>
+            <p className="text-xs text-white/70 dark:text-accent font-medium">DeviceLens Pro (planned)</p>
+            <p className="font-bold text-white dark:text-dl-dt text-sm mt-0.5">See planned Pro features →</p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-white/20 dark:bg-accent/10 flex items-center justify-center">
             <span className="material-symbols-outlined text-white dark:text-accent text-xl">rocket_launch</span>
@@ -50,10 +50,10 @@ const ProfileView: React.FC = () => {
           <p className="text-3xl font-extrabold text-gray-900 dark:text-dl-dt mt-1">{user?.query_count || 0}</p>
         </div>
         <div className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b shadow-soft dark:shadow-none p-4">
-          <p className="text-xs text-gray-400 dark:text-dl-dt2 font-medium">Status</p>
+          <p className="text-xs text-gray-400 dark:text-dl-dt2 font-medium">Mode</p>
           <div className="flex items-center gap-1.5 mt-1">
             <span className="w-2 h-2 rounded-full bg-success dark:bg-success-d" />
-            <p className="font-bold text-success dark:text-success-d">Active</p>
+            <p className="font-bold text-success dark:text-success-d">{user?.id === 'guest' ? 'Guest' : 'Signed in'}</p>
           </div>
         </div>
       </div>
