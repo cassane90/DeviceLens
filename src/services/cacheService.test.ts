@@ -10,7 +10,7 @@ import { DeviceCategory, DiagnosisResult, RiskLevel } from '../types';
  * - normalizeSymptoms: text normalisation logic
  * - generateImageHash: hash stability and variation
  * - get/set: round-trip, expiry, and cache miss
- * - clear: removes only TITAN cache keys
+ * - clear: removes only DeviceLens cache keys
  */
 
 // ── Minimal mock DiagnosisResult ──────────────────────────────────────────────
@@ -116,7 +116,7 @@ describe('cacheService get() / set()', () => {
     // Simulate expiry by manipulating the stored timestamp
     const key = cacheService.generateKey(DeviceCategory.PHONE, 'battery dead', TEST_IMAGES);
     const entry = JSON.parse(localStorage.getItem(key) || '{}');
-    entry.timestamp = Date.now() - (1000 * 60 * 60 * 24 * 91); // 91 days ago
+    entry.timestamp = Date.now() - (1000 * 60 * 60 * 24 * 8); // cache expires after 7 days
     localStorage.setItem(key, JSON.stringify(entry));
 
     const result = cacheService.get(DeviceCategory.PHONE, 'battery dead', TEST_IMAGES);
@@ -135,8 +135,8 @@ describe('cacheService.clear()', () => {
 
     cacheService.clear();
 
-    // TITAN cache gone
-    const remaining = Object.keys(localStorage).filter(k => k.startsWith('titan_neural_cache_'));
+    // DeviceLens cache gone
+    const remaining = Object.keys(localStorage).filter(k => k.startsWith('dl_cache_'));
     expect(remaining).toHaveLength(0);
 
     // Other keys untouched
