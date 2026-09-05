@@ -1,7 +1,7 @@
 {
   "name": "DeviceLens",
   "short_name": "DeviceLens",
-  "description": "AI-powered device diagnostics — identify issues, find repair shops, get fix estimates.",
+  "description": "AI-assisted device triage with safety guidance, likely causes, repair estimates, and repair resources.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
