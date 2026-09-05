@@ -5,9 +5,11 @@ import { UserProfile, QueryRecord, DeviceCategory, DiagnosisResult } from '../ty
 
 let supabase: SupabaseClient | null = null;
 try {
-  supabase = createClient(API_KEYS.SUPABASE_URL, API_KEYS.SUPABASE_ANON);
+  if (API_KEYS.SUPABASE_URL && API_KEYS.SUPABASE_ANON) {
+    supabase = createClient(API_KEYS.SUPABASE_URL, API_KEYS.SUPABASE_ANON);
+  }
 } catch {
-  console.error('DeviceLens: Supabase unavailable — running in local mode.');
+  console.warn("DeviceLens: Supabase unavailable. Guest mode remains available.");
 }
 
 const LOCAL_LOGS_KEY = 'dl_local_logs';
@@ -22,7 +24,9 @@ export const supabaseService = {
   get client() { return supabase; },
 
   async signIn() {
-    if (!supabase) return;
+    if (!supabase) {
+      throw new Error("Cloud sign-in is not configured on this deployment.");
+    }
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
