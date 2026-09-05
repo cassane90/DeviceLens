@@ -1,7 +1,5 @@
-import React from 'react';
-import { QueryRecord, RiskLevel } from '../types';
-import { formatCurrency } from '../constants';
-import { useApp } from '../providers/AppProvider';
+import React, { useState } from "react";
+import { QueryRecord, RiskLevel } from "../types";
 
 interface ResultCardProps {
   record: QueryRecord;
@@ -10,471 +8,286 @@ interface ResultCardProps {
 
 function riskClass(level: RiskLevel | string): string {
   switch (level) {
-    case RiskLevel.LOW:      return 'risk-low';
-    case RiskLevel.MODERATE: return 'risk-moderate';
-    case RiskLevel.HIGH:     return 'risk-high';
-    case RiskLevel.EXTREME:  return 'risk-extreme';
-    default:                  return 'risk-moderate';
+    case RiskLevel.LOW: return "risk-low";
+    case RiskLevel.MODERATE: return "risk-moderate";
+    case RiskLevel.HIGH: return "risk-high";
+    case RiskLevel.EXTREME: return "risk-extreme";
+    default: return "risk-moderate";
   }
 }
 
-function riskIcon(level: RiskLevel | string): string {
-  switch (level) {
-    case RiskLevel.LOW:     return 'check_circle';
-    case RiskLevel.MODERATE: return 'warning';
-    case RiskLevel.HIGH:    return 'report';
-    case RiskLevel.EXTREME: return 'dangerous';
-    default:                return 'warning';
-  }
+function searchLinks(record: QueryRecord) {
+  const result = record.ai_response;
+  const device = [result.brand, result.model].filter(Boolean).join(" ").trim();
+  const issue = record.description || result.likely_causes?.[0]?.cause || "repair";
+
+  return {
+    youtube: `https://www.youtube.com/results?search_query=${encodeURIComponent(`${device} ${issue} repair`)}`,
+    maps: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${device} repair shop near me`)}`,
+    market: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(device)}&LH_Sold=1&LH_Complete=1`,
+    web: `https://www.google.com/search?q=${encodeURIComponent(`${device} ${issue} repair`)}`,
+  };
 }
 
 const ResultCard: React.FC<ResultCardProps> = ({ record, onBack }) => {
-  const {
-    brand, model, confidence_score, risk_level, reasoning, recommended_action,
-    resale_value, currency_code, recommended_repair_hubs, diy_guides, required_tools,
-    purchase_options, parts_retailers, category_mismatch, identified_category,
-    no_visible_issue, common_failures,
-  } = record.ai_response;
+  const result = record.ai_response;
+  const links = searchLinks(record);
+  const [copied, setCopied] = useState(false);
 
-  const { user, setShowPremiumModal } = useApp();
+  const copySummary = async () => {
+    const likely = result.likely_causes.map(item => `- ${item.cause} (${item.likelihood}): ${item.reason}`).join("\n");
+    const text = [
+      `DeviceLens assessment: ${result.brand} ${result.model}`,
+      `Confidence: ${result.confidence_score}%`,
+      `Risk: ${result.risk_level}`,
+      "",
+      result.summary,
+      "",
+      "Likely causes:",
+      likely,
+      "",
+      `Recommended next step: ${result.recommended_action}`,
+      `Repair difficulty: ${result.repair_difficulty}`,
+      `Rough repair cost: ${result.potential_fix_cost_estimate}`,
+      "",
+      "AI-assisted assessment. Verify before repair or purchase decisions.",
+    ].join("\n");
 
-  const [diyOpen, setDiyOpen] = React.useState(false);
-  const [diyConfirm, setDiyConfirm] = React.useState(false);
-  const [jsonCopied, setJsonCopied] = React.useState(false);
-  const [shared, setShared] = React.useState(false);
-  const repairHubsRef = React.useRef<HTMLDivElement>(null);
-
-  const exportReport = async () => {
-    const el = document.getElementById('report-export');
-    if (!el) return;
-    // Lazy-load heavy PDF libs only when actually needed (~200 KB saved on initial load)
-    const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
-      import('jspdf'),
-      import('html2canvas'),
-    ]);
-    const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const w = pdf.internal.pageSize.getWidth();
-    const h = (canvas.height * w) / canvas.width;
-    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w, h);
-    pdf.save(`DeviceLens_${model.replace(/\s+/g, '_')}.pdf`);
-  };
-
-  const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(JSON.stringify(record.ai_response, null, 2));
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
     } catch {
-      const el = document.createElement('textarea');
-      el.value = JSON.stringify(record.ai_response, null, 2);
-      document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
+      // Clipboard support is optional.
     }
-    setJsonCopied(true);
-    setTimeout(() => setJsonCopied(false), 2000);
-  };
-
-  const handleShare = async () => {
-    const text = `🔍 DeviceLens Diagnosis\n${brand} ${model} · ${risk_level} risk\n${recommended_action}\nRepair estimate: ${record.ai_response.potential_fix_cost_estimate ?? 'See full report'}\n\nDiagnosed with DeviceLens — https://devicelens.vercel.app`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: `${brand} ${model} Diagnosis`, text });
-      } else {
-        await navigator.clipboard.writeText(text);
-      }
-      setShared(true);
-      setTimeout(() => setShared(false), 2000);
-    } catch { /* user cancelled share */ }
   };
 
   return (
-    <div className="bg-dl-bg dark:bg-dl-dark min-h-screen text-gray-900 dark:text-dl-dt pb-36 transition-colors duration-300">
-
-      {/* Sticky header */}
-      <header
-        data-html2canvas-ignore
-        className="sticky top-0 z-50 flex items-center justify-between px-4 py-3 bg-white/90 dark:bg-dl-dark-s/90 backdrop-blur-md border-b border-gray-100 dark:border-dl-dark-b"
-      >
-        <button
-          onClick={onBack}
-          className="w-9 h-9 rounded-lg flex items-center justify-center bg-gray-100 dark:bg-dl-dark-s2 hover:bg-gray-200 dark:hover:bg-dl-dark-b transition-colors"
-        >
+    <div className="bg-dl-bg dark:bg-dl-dark min-h-screen text-gray-900 dark:text-dl-dt pb-36">
+      <header className="sticky top-[61px] z-40 flex items-center justify-between px-4 py-3 bg-white/90 dark:bg-dl-dark-s/90 backdrop-blur-md border-b border-gray-100 dark:border-dl-dark-b">
+        <button onClick={onBack} className="w-9 h-9 rounded-lg flex items-center justify-center bg-gray-100 dark:bg-dl-dark-s2">
           <span className="material-symbols-outlined text-gray-600 dark:text-dl-dt2 text-xl">arrow_back</span>
         </button>
-        <h2 className="text-sm font-semibold text-gray-500 dark:text-dl-dt2">Diagnosis Result</h2>
-        <div className="w-9" />
+        <h2 className="text-sm font-semibold text-gray-500 dark:text-dl-dt2">Assessment</h2>
+        <button onClick={copySummary} className="w-9 h-9 rounded-lg flex items-center justify-center bg-gray-100 dark:bg-dl-dark-s2" title="Copy summary">
+          <span className="material-symbols-outlined text-gray-600 dark:text-dl-dt2 text-xl">{copied ? "check" : "content_copy"}</span>
+        </button>
       </header>
 
-      {/* Exportable content */}
-      <main id="report-export" className="p-5 space-y-5 bg-dl-bg dark:bg-dl-dark">
-
-        {/* ── Category mismatch ── */}
-        {category_mismatch && (
-          <div className="flex gap-3 p-3.5 rounded-xl bg-blue-50 dark:bg-accent/10 border border-blue-200 dark:border-accent/20">
-            <span className="material-symbols-outlined text-primary dark:text-accent text-xl shrink-0">info</span>
-            <div>
-              <p className="font-semibold text-sm text-primary dark:text-accent">Category mismatch detected</p>
-              <p className="text-xs text-blue-600 dark:text-dl-dt2 mt-0.5">
-                You selected <strong>{record.category}</strong>, but we identified this as a <strong>{identified_category}</strong>. Tip: select the correct category next time for better results.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* ── No visible issue ── */}
-        {no_visible_issue && (
-          <div className="p-4 rounded-xl bg-amber-50 dark:bg-warning-d/10 border border-amber-200 dark:border-warning-d/20 space-y-3">
-            <div className="flex gap-3 items-start">
-              <span className="material-symbols-outlined text-warning dark:text-warning-d text-xl shrink-0">help</span>
+      <main className="p-5 space-y-5">
+        {(result.is_high_voltage || result.risk_level === RiskLevel.EXTREME) && (
+          <section className="rounded-2xl border border-red-300 dark:border-danger-d/30 bg-red-50 dark:bg-danger-d/10 p-4">
+            <div className="flex gap-3">
+              <span className="material-symbols-outlined text-danger dark:text-danger-d">dangerous</span>
               <div>
-                <p className="font-semibold text-sm text-warning dark:text-warning-d">No obvious damage found</p>
-                <p className="text-xs text-amber-700 dark:text-warning-d/80 mt-0.5">
-                  This device looks in good condition. To get a useful diagnosis, please describe the specific issue you're experiencing.
+                <p className="font-bold text-danger dark:text-danger-d">Stop before attempting DIY repair</p>
+                <p className="text-sm text-red-700 dark:text-danger-d/90 mt-1">
+                  This assessment indicates a potentially dangerous electrical, battery, or hardware risk.
                 </p>
               </div>
             </div>
-            <button
-              data-html2canvas-ignore
-              onClick={onBack}
-              className="w-full py-2.5 rounded-lg bg-warning dark:bg-warning-d text-white dark:text-dl-dark font-semibold text-sm transition-colors"
-            >
-              Add description
-            </button>
-          </div>
+          </section>
         )}
 
-        {/* ── Device identity ── */}
-        <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b shadow-soft dark:shadow-none p-5 space-y-3">
+        <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b shadow-soft dark:shadow-none p-5 space-y-4">
           <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-extrabold text-gray-900 dark:text-dl-dt tracking-tight leading-tight">
-                {brand} <span className="text-primary dark:text-accent">{model}</span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-gray-400 dark:text-dl-dt2">{result.identified_category}</p>
+              <h1 className="text-2xl font-extrabold tracking-tight mt-1">
+                {result.brand} <span className="text-primary dark:text-accent">{result.model}</span>
               </h1>
-              <p className="text-sm text-gray-400 dark:text-dl-dt2 mt-1">{Math.round(confidence_score)}% confidence match</p>
             </div>
-            <span className={`px-3 py-1.5 rounded-full text-xs font-bold border flex items-center gap-1 shrink-0 ${riskClass(risk_level)}`}>
-              <span className="material-symbols-outlined text-xs">{riskIcon(risk_level)}</span>
-              {risk_level} risk
+            <span className={`px-3 py-1.5 rounded-full text-xs font-bold border shrink-0 ${riskClass(result.risk_level)}`}>
+              {result.risk_level} risk
             </span>
           </div>
 
-          {/* Tech specs (if from DB) */}
-          {record.ai_response.technical_specs && (
-            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 dark:border-dl-dark-b">
-              {Object.entries(record.ai_response.technical_specs).map(([key, value]) => (
-                <div key={key}>
-                  <p className="text-[10px] font-semibold text-gray-400 dark:text-dl-dt2 uppercase tracking-wide">{key}</p>
-                  <p className="text-xs font-semibold text-gray-900 dark:text-dl-dt font-mono mt-0.5">{String(value)}</p>
-                </div>
-              ))}
+          <div className="rounded-xl bg-gray-50 dark:bg-dl-dark-s2 p-3">
+            <div className="flex items-center justify-between text-xs mb-2">
+              <span className="font-semibold text-gray-600 dark:text-dl-dt2">Identification confidence</span>
+              <span className="font-mono font-bold text-gray-900 dark:text-dl-dt">{Math.round(result.confidence_score)}%</span>
             </div>
-          )}
-        </section>
+            <div className="h-2 rounded-full bg-gray-200 dark:bg-dl-dark-b overflow-hidden">
+              <div className="h-full bg-primary dark:bg-accent rounded-full" style={{ width: `${Math.max(2, Math.min(100, result.confidence_score))}%` }} />
+            </div>
+          </div>
 
-        {/* ── Common failures (premium) ── */}
-        {common_failures && common_failures.length > 0 && (
-          <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b shadow-soft dark:shadow-none overflow-hidden">
-            <div className="p-4 border-b border-gray-100 dark:border-dl-dark-b flex items-center gap-2">
-              <span className="material-symbols-outlined text-warning dark:text-warning-d text-base">warning</span>
-              <h3 className="font-semibold text-sm text-gray-900 dark:text-dl-dt">Known failure points</h3>
-            </div>
-            <div className="p-4">
-              <ul className="space-y-2">
-                {common_failures.map((fail, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-warning dark:bg-warning-d mt-1.5 shrink-0" />
-                    <p className="text-sm text-gray-700 dark:text-dl-dt">{fail}</p>
+          {result.identification_evidence.length > 0 && (
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-dl-dt2 mb-2">What it used</p>
+              <ul className="space-y-1.5">
+                {result.identification_evidence.map((evidence, index) => (
+                  <li key={index} className="flex gap-2 text-sm text-gray-600 dark:text-dl-dt2">
+                    <span className="material-symbols-outlined text-primary dark:text-accent text-base mt-0.5">visibility</span>
+                    <span>{evidence}</span>
                   </li>
                 ))}
               </ul>
             </div>
+          )}
+        </section>
+
+        {result.no_visible_issue && (
+          <section className="rounded-2xl border border-amber-200 dark:border-warning-d/20 bg-amber-50 dark:bg-warning-d/10 p-4">
+            <p className="font-semibold text-warning dark:text-warning-d">No clear visible fault detected</p>
+            <p className="text-sm text-amber-800 dark:text-warning-d/90 mt-1">
+              A device can still have an internal or intermittent problem. Add detailed symptoms before relying on the visual assessment.
+            </p>
           </section>
         )}
 
-        {/* ── Value breakdown ── */}
-        <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b shadow-soft dark:shadow-none overflow-hidden">
-          <div className="p-4 border-b border-gray-100 dark:border-dl-dark-b flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary dark:text-accent text-base">attach_money</span>
-            <h3 className="font-semibold text-sm text-gray-900 dark:text-dl-dt">Value breakdown</h3>
+        <section className="bg-primary dark:bg-dl-dark-s2 rounded-2xl p-5 border border-primary/20 dark:border-accent/20">
+          <p className="text-xs font-bold text-white/70 dark:text-accent uppercase tracking-wider">Assessment</p>
+          <p className="text-lg font-bold text-white dark:text-dl-dt leading-relaxed mt-2">{result.summary}</p>
+        </section>
+
+        <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b overflow-hidden">
+          <div className="p-4 border-b border-gray-100 dark:border-dl-dark-b">
+            <h3 className="font-bold text-sm">Likely causes</h3>
           </div>
-          <div className="grid grid-cols-3 divide-x divide-gray-100 dark:divide-dl-dark-b">
-            <div className="p-4 text-center">
-              <p className="text-[10px] font-semibold text-gray-400 dark:text-dl-dt2 uppercase mb-1">As-is</p>
-              <p className="font-bold text-gray-900 dark:text-dl-dt text-sm font-mono">{formatCurrency(resale_value.unit_value_broken, currency_code)}</p>
-            </div>
-            <div className="p-4 text-center">
-              <p className="text-[10px] font-semibold text-gray-400 dark:text-dl-dt2 uppercase mb-1">Repaired</p>
-              <p className="font-bold text-gray-900 dark:text-dl-dt text-sm font-mono">{formatCurrency(resale_value.unit_value_fixed, currency_code)}</p>
-            </div>
-            <div className="p-4 text-center bg-green-50 dark:bg-success-d/10">
-              <p className="text-[10px] font-semibold text-success dark:text-success-d uppercase mb-1">Profit</p>
-              <p className="font-bold text-success dark:text-success-d text-sm font-mono">{formatCurrency(resale_value.profit_potential, currency_code)}</p>
-            </div>
+          <div className="divide-y divide-gray-100 dark:divide-dl-dark-b">
+            {result.likely_causes.map((item, index) => (
+              <div key={index} className="p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-sm">{item.cause}</p>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-primary dark:text-accent">{item.likelihood}</span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-dl-dt2 mt-1 leading-relaxed">{item.reason}</p>
+              </div>
+            ))}
           </div>
-          <div className="px-4 pb-3 flex items-center justify-between gap-3 border-t border-gray-50 dark:border-dl-dark-b pt-3">
-            <p className="text-[10px] text-gray-400 dark:text-dl-dt2">
-              AI market estimate — verify before selling
+        </section>
+
+        <section className="grid grid-cols-2 gap-3">
+          <div className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b p-4">
+            <span className="material-symbols-outlined text-primary dark:text-accent">construction</span>
+            <p className="text-xs text-gray-400 dark:text-dl-dt2 mt-2">Repair difficulty</p>
+            <p className="font-bold text-sm mt-1">{result.repair_difficulty}</p>
+          </div>
+          <div className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b p-4">
+            <span className="material-symbols-outlined text-primary dark:text-accent">payments</span>
+            <p className="text-xs text-gray-400 dark:text-dl-dt2 mt-2">Rough repair cost</p>
+            <p className="font-bold text-sm mt-1">{result.potential_fix_cost_estimate || "Unknown"}</p>
+          </div>
+        </section>
+
+        <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b p-5">
+          <p className="text-xs font-bold uppercase tracking-wider text-primary dark:text-accent">Recommended next step</p>
+          <p className="text-lg font-extrabold mt-2 leading-snug">{result.recommended_action}</p>
+          {result.cost_basis && (
+            <p className="text-xs text-gray-400 dark:text-dl-dt2 mt-3 leading-relaxed">
+              Cost estimate basis: {result.cost_basis}
             </p>
-            <a
-              href={`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(`${brand} ${model}`)}&LH_Sold=1&LH_Complete=1`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[10px] font-semibold text-primary dark:text-accent hover:underline shrink-0 flex items-center gap-0.5"
-            >
-              Check eBay sold listings
-              <span className="material-symbols-outlined text-[10px]">open_in_new</span>
+          )}
+        </section>
+
+        {result.safety_notes.length > 0 && (
+          <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b overflow-hidden">
+            <div className="p-4 border-b border-gray-100 dark:border-dl-dark-b flex items-center gap-2">
+              <span className="material-symbols-outlined text-warning dark:text-warning-d">health_and_safety</span>
+              <h3 className="font-bold text-sm">Safety</h3>
+            </div>
+            <ul className="p-4 space-y-2">
+              {result.safety_notes.map((note, index) => (
+                <li key={index} className="text-sm text-gray-600 dark:text-dl-dt2 leading-relaxed flex gap-2">
+                  <span className="text-warning dark:text-warning-d">•</span>
+                  <span>{note}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {result.required_tools.length > 0 && (
+          <section className="space-y-3">
+            <h3 className="font-bold text-sm flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary dark:text-accent">handyman</span>
+              Likely tools
+            </h3>
+            <div className="space-y-2">
+              {result.required_tools.map((tool, index) => (
+                <div key={index} className="bg-white dark:bg-dl-dark-s rounded-xl border border-gray-100 dark:border-dl-dark-b p-3.5">
+                  <p className="font-semibold text-sm">{tool.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-dl-dt2 mt-1">{tool.reason}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {result.common_failures.length > 0 && (
+          <section className="bg-white dark:bg-dl-dark-s rounded-2xl border border-gray-100 dark:border-dl-dark-b p-4">
+            <h3 className="font-bold text-sm mb-3">Common failure points worth checking</h3>
+            <ul className="space-y-2">
+              {result.common_failures.map((failure, index) => (
+                <li key={index} className="text-sm text-gray-600 dark:text-dl-dt2 flex gap-2">
+                  <span className="material-symbols-outlined text-gray-400 text-base">check_circle</span>
+                  <span>{failure}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section className="space-y-3">
+          <div>
+            <h3 className="font-bold text-sm">Repair resources</h3>
+            <p className="text-xs text-gray-400 dark:text-dl-dt2 mt-1">External resources are searches or source guides, not DeviceLens endorsements.</p>
+          </div>
+
+          {result.repair_guides.length > 0 && (
+            <div className="space-y-2">
+              {result.repair_guides.map((guide, index) => (
+                <a
+                  key={index}
+                  href={guide.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block bg-white dark:bg-dl-dark-s rounded-xl border border-gray-100 dark:border-dl-dark-b p-4 hover:border-primary/40 dark:hover:border-accent/40 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-primary dark:text-accent">{guide.source}</p>
+                      <p className="font-semibold text-sm mt-1">{guide.title}</p>
+                      {guide.summary && <p className="text-xs text-gray-500 dark:text-dl-dt2 mt-1 line-clamp-2">{guide.summary}</p>}
+                    </div>
+                    <span className="material-symbols-outlined text-gray-400">open_in_new</span>
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <a href={links.youtube} target="_blank" rel="noopener noreferrer" className="rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b p-4 flex flex-col gap-2">
+              <span className="material-symbols-outlined text-red-500">play_circle</span>
+              <span className="font-semibold text-sm">Search YouTube</span>
+              <span className="text-[10px] text-gray-400 dark:text-dl-dt2">Exact device + repair</span>
+            </a>
+            <a href={links.maps} target="_blank" rel="noopener noreferrer" className="rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b p-4 flex flex-col gap-2">
+              <span className="material-symbols-outlined text-primary dark:text-accent">location_on</span>
+              <span className="font-semibold text-sm">Repair shops</span>
+              <span className="text-[10px] text-gray-400 dark:text-dl-dt2">Open Google Maps search</span>
+            </a>
+            <a href={links.web} target="_blank" rel="noopener noreferrer" className="rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b p-4 flex flex-col gap-2">
+              <span className="material-symbols-outlined text-primary dark:text-accent">search</span>
+              <span className="font-semibold text-sm">Research repair</span>
+              <span className="text-[10px] text-gray-400 dark:text-dl-dt2">Search the exact issue</span>
+            </a>
+            <a href={links.market} target="_blank" rel="noopener noreferrer" className="rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b p-4 flex flex-col gap-2">
+              <span className="material-symbols-outlined text-primary dark:text-accent">sell</span>
+              <span className="font-semibold text-sm">Check market</span>
+              <span className="text-[10px] text-gray-400 dark:text-dl-dt2">Completed eBay listings</span>
             </a>
           </div>
         </section>
 
-        {/* ── Recommendation ── */}
-        <section className="bg-primary dark:bg-dl-dark-s2 rounded-2xl p-5 border border-primary/20 dark:border-accent/20 space-y-2">
-          <p className="text-xs font-semibold text-white/70 dark:text-accent uppercase tracking-wider">Our recommendation</p>
-          <p className="text-xl font-extrabold text-white dark:text-dl-dt leading-tight">{recommended_action}</p>
-          <p className="text-sm text-white/80 dark:text-dl-dt2 leading-relaxed">{reasoning}</p>
-        </section>
-
-        {/* ── Market options ── */}
-        {((purchase_options?.length > 0) || (parts_retailers?.length > 0)) && (
-          <section className="space-y-3">
-            <h3 className="font-semibold text-sm text-gray-700 dark:text-dl-dt flex items-center gap-2">
-              <span className="material-symbols-outlined text-base text-primary dark:text-accent">shopping_cart</span>
-              Where to buy
-            </h3>
-
-            {purchase_options?.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-gray-400 dark:text-dl-dt2 font-medium">Replacement units</p>
-                {purchase_options.map((opt, i) => (
-                  <a key={i} href={opt.uri} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-between p-3.5 rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b hover:border-primary/30 dark:hover:border-accent/30 shadow-soft dark:shadow-none transition-all group"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-dl-dt group-hover:text-primary dark:group-hover:text-accent">{opt.name}</p>
-                      <span className="text-[10px] text-gray-400 dark:text-dl-dt2">{opt.is_new ? 'Brand new' : 'Used / Refurb'}</span>
-                    </div>
-                    <p className="font-bold text-primary dark:text-accent text-sm font-mono">{opt.price}</p>
-                  </a>
-                ))}
-              </div>
-            )}
-
-            {parts_retailers?.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-gray-400 dark:text-dl-dt2 font-medium">Parts & components</p>
-                {parts_retailers.map((part, i) => (
-                  <a key={i} href={part.uri} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-between p-3.5 rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b hover:border-success/30 dark:hover:border-success-d/30 shadow-soft dark:shadow-none transition-all group"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-dl-dt">{part.part_name}</p>
-                      <span className="text-[10px] text-gray-400 dark:text-dl-dt2">via {part.name}</span>
-                    </div>
-                    <span className="material-symbols-outlined text-gray-300 dark:text-dl-dt2 group-hover:text-success dark:group-hover:text-success-d">open_in_new</span>
-                  </a>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* ── Local repair shops ── */}
-        <section ref={repairHubsRef} className="space-y-3">
-          <h3 className="font-semibold text-sm text-gray-700 dark:text-dl-dt flex items-center gap-2">
-            <span className="material-symbols-outlined text-base text-primary dark:text-accent">location_on</span>
-            Nearby repair shops
-          </h3>
-          <div className="space-y-2">
-            {recommended_repair_hubs?.length > 0 ? (
-              recommended_repair_hubs.map((hub, i) => (
-                <a key={i} href={hub.uri} target="_blank" rel="noopener noreferrer"
-                  className="block p-4 rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b hover:border-primary/30 dark:hover:border-accent/30 shadow-soft dark:shadow-none transition-all group"
-                >
-                  <div className="flex justify-between items-start gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-gray-900 dark:text-dl-dt group-hover:text-primary dark:group-hover:text-accent leading-snug">{hub.name}</p>
-                      {hub.verified && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-primary dark:text-accent mt-0.5">
-                          <span className="material-symbols-outlined text-[10px]">verified</span>
-                          Verified on Google Maps
-                        </span>
-                      )}
-                    </div>
-                    {hub.rating && (
-                      <span className="flex items-center gap-0.5 text-xs text-warning dark:text-warning-d font-semibold shrink-0">
-                        <span className="material-symbols-outlined text-xs">star</span>
-                        {hub.rating}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-400 dark:text-dl-dt2 mt-1 truncate">{hub.address}</p>
-                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                    {hub.specialty && (
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                        hub.specialty.toLowerCase().includes('open')
-                          ? 'bg-green-50 dark:bg-success-d/10 text-success dark:text-success-d'
-                          : 'bg-red-50 dark:bg-danger-d/10 text-danger dark:text-danger-d'
-                      }`}>
-                        {hub.specialty}
-                      </span>
-                    )}
-                  </div>
-                  {hub.topReview && (
-                    <p className="text-[11px] text-gray-400 dark:text-dl-dt2 mt-2 italic leading-snug line-clamp-2">
-                      "{hub.topReview}"
-                    </p>
-                  )}
-                </a>
-              ))
-            ) : (
-              <div className="p-6 rounded-xl border border-dashed border-gray-200 dark:border-dl-dark-b text-center space-y-2">
-                <span className="material-symbols-outlined text-gray-300 dark:text-dl-dt2 text-2xl">location_off</span>
-                <p className="text-sm text-gray-400 dark:text-dl-dt2">Location permission needed to find local shops.</p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* ── DIY repair section ── */}
-        <section className="space-y-3">
-          <h3 className="font-semibold text-sm text-gray-700 dark:text-dl-dt flex items-center gap-2">
-            <span className="material-symbols-outlined text-base text-primary dark:text-accent">build</span>
-            DIY repair guides
-          </h3>
-
-          {!diyOpen && !diyConfirm && (
-            <div className="p-5 rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b shadow-soft dark:shadow-none space-y-4">
-              <div className="flex gap-3 items-start">
-                <span className="material-symbols-outlined text-warning dark:text-warning-d text-xl shrink-0">warning</span>
-                <div>
-                  <p className="font-semibold text-sm text-warning dark:text-warning-d">DIY carries real risk</p>
-                  <p className="text-xs text-gray-500 dark:text-dl-dt2 mt-0.5 leading-relaxed">
-                    Unauthorized repairs may void your warranty or cause further damage. Only proceed if you're confident.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setDiyConfirm(true)}
-                  className="flex-1 py-2.5 rounded-xl bg-gray-900 dark:bg-dl-dark-s2 text-white dark:text-dl-dt text-sm font-semibold hover:opacity-90 transition-all"
-                >
-                  Show guides anyway
-                </button>
-                <button
-                  onClick={() => repairHubsRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                  className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-dl-dark-b text-gray-700 dark:text-dl-dt text-sm font-semibold hover:bg-gray-50 dark:hover:bg-dl-dark-s2 transition-all"
-                >
-                  Find a shop instead
-                </button>
-              </div>
-            </div>
-          )}
-
-          {diyConfirm && !diyOpen && (
-            <div className="p-5 rounded-xl bg-amber-50 dark:bg-warning-d/10 border border-amber-200 dark:border-warning-d/20 space-y-4">
-              <p className="font-semibold text-sm text-gray-900 dark:text-dl-dt text-center">Are you sure?</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { setDiyOpen(true); setDiyConfirm(false); }}
-                  className="flex-1 py-2.5 rounded-xl bg-warning dark:bg-warning-d text-white dark:text-dl-dark font-semibold text-sm"
-                >
-                  Yes, I understand
-                </button>
-                <button
-                  onClick={() => setDiyConfirm(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-dl-dark-b text-gray-700 dark:text-dl-dt text-sm font-semibold"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {diyOpen && (
-            <div className="space-y-4">
-              {/* Tools */}
-              {required_tools && required_tools.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-400 dark:text-dl-dt2 font-medium">Tools needed</p>
-                  {required_tools.map((tool, i) => (
-                    <div key={i} className="flex items-center justify-between p-3.5 rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b shadow-soft dark:shadow-none">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900 dark:text-dl-dt">{tool.name}</p>
-                        <p className="text-xs text-gray-400 dark:text-dl-dt2">{tool.reason}</p>
-                      </div>
-                      {tool.link && (
-                        <a href={tool.link} target="_blank" rel="noopener noreferrer"
-                          className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10 dark:bg-accent/10 hover:bg-primary/20 dark:hover:bg-accent/20 transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-primary dark:text-accent text-base">shopping_cart</span>
-                        </a>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Video guides */}
-              {diy_guides && diy_guides.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-400 dark:text-dl-dt2 font-medium">Video guides</p>
-                  {diy_guides.map((guide, i) => {
-                    const isVideo = guide.uri.includes('watch?v=');
-                    return (
-                      <a key={i} href={guide.uri} target="_blank" rel="noopener noreferrer"
-                        className="flex items-start gap-3 p-3.5 rounded-xl bg-white dark:bg-dl-dark-s border border-gray-100 dark:border-dl-dark-b hover:border-primary/30 dark:hover:border-accent/30 shadow-soft dark:shadow-none transition-all group"
-                      >
-                        <div className="w-9 h-9 rounded-lg bg-red-50 dark:bg-danger-d/10 flex items-center justify-center shrink-0">
-                          <span className="material-symbols-outlined text-red-500 dark:text-danger-d text-xl">
-                            {isVideo ? 'play_circle' : 'youtube_searched_for'}
-                          </span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 dark:text-dl-dt group-hover:text-primary dark:group-hover:text-accent truncate">{guide.title}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] text-gray-400 dark:text-dl-dt2">
-                              {isVideo ? 'YouTube video' : 'YouTube search'}
-                            </span>
-                            <span className="text-[10px] text-gray-300 dark:text-dl-dt2">·</span>
-                            <span className="text-[10px] text-gray-400 dark:text-dl-dt2">{guide.difficulty}</span>
-                          </div>
-                        </div>
-                        <span className="material-symbols-outlined text-gray-300 dark:text-dl-dt2 shrink-0">open_in_new</span>
-                      </a>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+        <section className="rounded-xl bg-gray-100 dark:bg-dl-dark-s2 p-4">
+          <p className="text-[11px] text-gray-500 dark:text-dl-dt2 leading-relaxed">
+            DeviceLens provides AI-assisted triage and rough estimates. Photos cannot prove every internal fault, and prices vary by location, parts quality, model variant, and technician. Verify important repair, safety, and purchasing decisions independently.
+          </p>
         </section>
       </main>
-
-      {/* ── Sticky footer actions ── */}
-      <footer
-        data-html2canvas-ignore
-        className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-4 bg-white/95 dark:bg-dl-dark-s/95 backdrop-blur-md border-t border-gray-100 dark:border-dl-dark-b flex gap-3 z-50"
-      >
-        <button
-          onClick={handleShare}
-          className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-dl-dark-b text-gray-700 dark:text-dl-dt text-sm font-semibold flex items-center justify-center gap-2 hover:bg-gray-50 dark:hover:bg-dl-dark-s2 transition-all active:scale-[0.98]"
-        >
-          <span className="material-symbols-outlined text-base">{shared ? 'check' : 'share'}</span>
-          {shared ? 'Shared!' : 'Share'}
-        </button>
-        <button
-          onClick={handleCopy}
-          className="py-3 px-4 rounded-xl border border-gray-200 dark:border-dl-dark-b text-gray-500 dark:text-dl-dt2 text-sm flex items-center justify-center hover:bg-gray-50 dark:hover:bg-dl-dark-s2 transition-all"
-          title="Copy raw JSON"
-        >
-          <span className="material-symbols-outlined text-base">{jsonCopied ? 'check' : 'data_object'}</span>
-        </button>
-        <button
-          onClick={exportReport}
-          className="flex-1 py-3 rounded-xl bg-primary dark:bg-accent text-white dark:text-dl-dark text-sm font-bold flex items-center justify-center gap-2 shadow-card dark:shadow-glow hover:bg-primary-700 dark:hover:bg-blue-300 transition-all active:scale-[0.98]"
-        >
-          <span className="material-symbols-outlined text-base">download</span>
-          Export PDF
-        </button>
-      </footer>
     </div>
   );
 };
