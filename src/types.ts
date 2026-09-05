@@ -1,94 +1,64 @@
-export enum UserRole {
-  TECH = 'Tech Professional',
-  AUDITOR = 'Business Owner',
-  OPERATOR = 'Home User',
-  FLIPPER = 'Device Reseller',
-  DIY = 'DIY Enthusiast'
-}
-
 export enum DeviceCategory {
-  LAPTOP = 'Laptop',
-  PHONE = 'Smartphone',
-  CONSOLE = 'Game Console',
-  TABLET = 'Tablet',
-  APPLIANCE = 'Appliance',
-  DESKTOP = 'Desktop Computer',
-  OTHER = 'Other Electronic'
+  LAPTOP = "Laptop",
+  PHONE = "Smartphone",
+  CONSOLE = "Game Console",
+  TABLET = "Tablet",
+  APPLIANCE = "Appliance",
+  DESKTOP = "Desktop Computer",
+  OTHER = "Other Electronic",
 }
 
 export enum RiskLevel {
-  LOW = 'Low',
-  MODERATE = 'Moderate',
-  HIGH = 'High',
-  EXTREME = 'Extreme'
+  LOW = "Low",
+  MODERATE = "Moderate",
+  HIGH = "High",
+  EXTREME = "Extreme",
 }
 
-export interface RepairHub {
-  name: string;
-  address: string;
-  uri: string;
-  rating: string;
-  specialty: string;
-  topReview?: string;
-  reviewCount?: number;
-  verified?: boolean;
-}
+export type RepairDifficulty = "Easy" | "Moderate" | "Difficult" | "Professional only";
 
-export interface DIYGuide {
-  title: string;
-  uri: string;
-  platform: 'youtube' | 'ifixit' | 'article' | 'other';
-  author?: string;
-  duration?: string;
-  difficulty: 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert';
+export interface LikelyCause {
+  cause: string;
+  likelihood: "Likely" | "Possible" | "Uncertain";
+  reason: string;
 }
 
 export interface RepairTool {
   name: string;
   reason: string;
-  link?: string;
 }
 
-export interface MarketOption {
-  name: string;
-  price: string;
-  uri: string;
-  is_new: boolean;
-}
-
-export interface PartsRetailer {
-  name: string;
-  part_name: string;
-  uri: string;
+export interface RepairGuide {
+  title: string;
+  url: string;
+  source: "iFixit";
+  summary?: string;
+  image?: string;
 }
 
 export interface DiagnosisResult {
   brand: string;
   model: string;
+  identified_category: string;
   confidence_score: number;
+  identification_evidence: string[];
+  category_mismatch: boolean;
+  no_visible_issue: boolean;
+
   risk_level: RiskLevel;
   is_high_voltage: boolean;
+  safety_notes: string[];
+
+  summary: string;
+  likely_causes: LikelyCause[];
   recommended_action: string;
-  reasoning: string;
+  repair_difficulty: RepairDifficulty;
   potential_fix_cost_estimate: string;
-  currency_code: string;
-  resale_value: {
-    unit_value_fixed: string;
-    unit_value_broken: string;
-    profit_potential: string;
-  };
-  recommended_repair_hubs: RepairHub[];
-  diy_guides?: DIYGuide[];
-  required_tools?: RepairTool[];
-  purchase_options: MarketOption[];
-  parts_retailers: PartsRetailer[];
-  sources?: string[];
-  category_mismatch?: boolean;
-  identified_category?: string;
-  no_visible_issue?: boolean;
-  technical_specs?: Record<string, string | number | null>;
-  common_failures?: string[];
-  is_pro_report?: boolean;
+  cost_basis: string;
+  common_failures: string[];
+  required_tools: RepairTool[];
+
+  repair_guides: RepairGuide[];
 }
 
 export interface QueryRecord {
@@ -96,27 +66,9 @@ export interface QueryRecord {
   created_at: string;
   category: DeviceCategory;
   description: string;
+  device_name?: string;
   photo_urls: string[];
   ai_response: DiagnosisResult;
 }
 
-export interface UserProfile {
-  id: string;
-  role: UserRole | null;
-  email: string;
-  is_premium: boolean;
-  query_count: number;
-  onboarding_accepted: boolean;
-  permissions: {
-    camera: 'prompt' | 'granted' | 'denied';
-    location: 'prompt' | 'granted' | 'denied';
-  };
-}
-
-export interface ChatMessage {
-  role: 'user' | 'ai';
-  text: string;
-  sources?: string[];
-}
-
-export type ThemeMode = 'light' | 'dark';
+export type ThemeMode = "light" | "dark";
