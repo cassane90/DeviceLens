@@ -1,294 +1,322 @@
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
-const diagnosisSchema = {
-  type: 'object',
+const schema = {
+  type: "object",
   properties: {
-    brand: { type: 'string' },
-    model: { type: 'string' },
-    confidence_score: { type: 'number', minimum: 0, maximum: 100 },
-    risk_level: { type: 'string', enum: ['Low', 'Moderate', 'High', 'Extreme'] },
-    is_high_voltage: { type: 'boolean' },
-    recommended_action: { type: 'string' },
-    reasoning: { type: 'string' },
-    potential_fix_cost_estimate: { type: 'string' },
-    currency_code: { type: 'string' },
-    resale_value: {
-      type: 'object',
-      properties: {
-        unit_value_fixed: { type: 'string' },
-        unit_value_broken: { type: 'string' },
-        profit_potential: { type: 'string' }
-      },
-      required: ['unit_value_fixed', 'unit_value_broken', 'profit_potential']
+    brand: { type: "string" },
+    model: { type: "string" },
+    identified_category: { type: "string" },
+    confidence_score: { type: "number", minimum: 0, maximum: 100 },
+    identification_evidence: {
+      type: "array",
+      maxItems: 5,
+      items: { type: "string" }
     },
-    diy_guides: {
-      type: 'array',
-      maxItems: 2,
+    category_mismatch: { type: "boolean" },
+    no_visible_issue: { type: "boolean" },
+
+    risk_level: { type: "string", enum: ["Low", "Moderate", "High", "Extreme"] },
+    is_high_voltage: { type: "boolean" },
+    safety_notes: {
+      type: "array",
+      maxItems: 5,
+      items: { type: "string" }
+    },
+
+    summary: { type: "string" },
+    likely_causes: {
+      type: "array",
+      minItems: 1,
+      maxItems: 4,
       items: {
-        type: 'object',
+        type: "object",
         properties: {
-          title: { type: 'string' },
-          uri: { type: 'string' },
-          platform: { type: 'string' },
-          difficulty: { type: 'string', enum: ['Beginner', 'Intermediate', 'Advanced', 'Expert'] }
+          cause: { type: "string" },
+          likelihood: { type: "string", enum: ["Likely", "Possible", "Uncertain"] },
+          reason: { type: "string" }
         },
-        required: ['title', 'uri', 'platform', 'difficulty']
+        required: ["cause", "likelihood", "reason"]
       }
+    },
+    recommended_action: { type: "string" },
+    repair_difficulty: {
+      type: "string",
+      enum: ["Easy", "Moderate", "Difficult", "Professional only"]
+    },
+    potential_fix_cost_estimate: { type: "string" },
+    cost_basis: { type: "string" },
+    common_failures: {
+      type: "array",
+      maxItems: 5,
+      items: { type: "string" }
     },
     required_tools: {
-      type: 'array',
-      maxItems: 4,
+      type: "array",
+      maxItems: 5,
       items: {
-        type: 'object',
+        type: "object",
         properties: {
-          name: { type: 'string' },
-          reason: { type: 'string' }
+          name: { type: "string" },
+          reason: { type: "string" }
         },
-        required: ['name', 'reason']
+        required: ["name", "reason"]
       }
-    },
-    common_failures: {
-      type: 'array',
-      maxItems: 4,
-      items: { type: 'string' }
-    },
-    category_mismatch: { type: 'boolean' },
-    identified_category: { type: 'string' },
-    no_visible_issue: { type: 'boolean' }
+    }
   },
   required: [
-    'brand',
-    'model',
-    'confidence_score',
-    'risk_level',
-    'is_high_voltage',
-    'recommended_action',
-    'reasoning',
-    'potential_fix_cost_estimate',
-    'currency_code',
-    'resale_value',
-    'diy_guides',
-    'required_tools',
-    'common_failures',
-    'category_mismatch',
-    'identified_category',
-    'no_visible_issue'
+    "brand",
+    "model",
+    "identified_category",
+    "confidence_score",
+    "identification_evidence",
+    "category_mismatch",
+    "no_visible_issue",
+    "risk_level",
+    "is_high_voltage",
+    "safety_notes",
+    "summary",
+    "likely_causes",
+    "recommended_action",
+    "repair_difficulty",
+    "potential_fix_cost_estimate",
+    "cost_basis",
+    "common_failures",
+    "required_tools"
   ]
 };
 
 function parseBody(req) {
   if (!req.body) return {};
-  if (typeof req.body === 'string') return JSON.parse(req.body);
+  if (typeof req.body === "string") return JSON.parse(req.body);
   return req.body;
 }
 
-function cleanDataUrl(value) {
-  if (typeof value !== 'string') return null;
+function cleanImage(value) {
+  if (typeof value !== "string") return null;
   const match = value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!match) return null;
-  return { mimeType: match[1], data: match[2] };
-}
-
-function normalizeText(value, fallback = '') {
-  return typeof value === 'string' ? value.trim() : fallback;
-}
-
-function normalizeResult(raw) {
-  const validRisk = ['Low', 'Moderate', 'High', 'Extreme'];
-  const risk = validRisk.includes(raw?.risk_level) ? raw.risk_level : 'Moderate';
-  const confidence = Number(raw?.confidence_score);
-
   return {
-    brand: normalizeText(raw?.brand, 'Unknown'),
-    model: normalizeText(raw?.model, 'Unknown device'),
-    confidence_score: Number.isFinite(confidence) ? Math.max(0, Math.min(100, Math.round(confidence))) : 0,
-    risk_level: risk,
-    is_high_voltage: Boolean(raw?.is_high_voltage),
-    recommended_action: normalizeText(raw?.recommended_action, 'Get a professional inspection before proceeding.'),
-    reasoning: normalizeText(raw?.reasoning, 'The available information was not enough for a detailed explanation.'),
-    potential_fix_cost_estimate: normalizeText(raw?.potential_fix_cost_estimate, 'Unknown'),
-    currency_code: normalizeText(raw?.currency_code, 'USD').toUpperCase().slice(0, 3),
-    resale_value: {
-      unit_value_fixed: normalizeText(raw?.resale_value?.unit_value_fixed, 'Unknown'),
-      unit_value_broken: normalizeText(raw?.resale_value?.unit_value_broken, 'Unknown'),
-      profit_potential: normalizeText(raw?.resale_value?.profit_potential, 'Unknown')
-    },
-    recommended_repair_hubs: [],
-    diy_guides: Array.isArray(raw?.diy_guides) ? raw.diy_guides.slice(0, 2) : [],
-    required_tools: Array.isArray(raw?.required_tools) ? raw.required_tools.slice(0, 4) : [],
-    purchase_options: [],
-    parts_retailers: [],
-    common_failures: Array.isArray(raw?.common_failures) ? raw.common_failures.slice(0, 4) : [],
-    category_mismatch: Boolean(raw?.category_mismatch),
-    identified_category: normalizeText(raw?.identified_category, 'Unknown'),
-    no_visible_issue: Boolean(raw?.no_visible_issue),
-    sources: []
+    type: "image",
+    mime_type: match[1],
+    data: match[2]
   };
 }
 
+function text(value, fallback = "") {
+  return typeof value === "string" ? value.trim() : fallback;
+}
+
+function normalize(raw) {
+  const risks = ["Low", "Moderate", "High", "Extreme"];
+  const difficulties = ["Easy", "Moderate", "Difficult", "Professional only"];
+  const confidence = Number(raw?.confidence_score);
+
+  return {
+    brand: text(raw?.brand, "Unknown"),
+    model: text(raw?.model, "Unknown device"),
+    identified_category: text(raw?.identified_category, "Unknown"),
+    confidence_score: Number.isFinite(confidence)
+      ? Math.max(0, Math.min(100, Math.round(confidence)))
+      : 0,
+    identification_evidence: Array.isArray(raw?.identification_evidence)
+      ? raw.identification_evidence.slice(0, 5).map(item => text(item)).filter(Boolean)
+      : [],
+    category_mismatch: Boolean(raw?.category_mismatch),
+    no_visible_issue: Boolean(raw?.no_visible_issue),
+
+    risk_level: risks.includes(raw?.risk_level) ? raw.risk_level : "Moderate",
+    is_high_voltage: Boolean(raw?.is_high_voltage),
+    safety_notes: Array.isArray(raw?.safety_notes)
+      ? raw.safety_notes.slice(0, 5).map(item => text(item)).filter(Boolean)
+      : [],
+
+    summary: text(raw?.summary, "The available information is not enough for a confident assessment."),
+    likely_causes: Array.isArray(raw?.likely_causes)
+      ? raw.likely_causes.slice(0, 4).map(item => ({
+          cause: text(item?.cause, "Unknown cause"),
+          likelihood: ["Likely", "Possible", "Uncertain"].includes(item?.likelihood)
+            ? item.likelihood
+            : "Uncertain",
+          reason: text(item?.reason, "Insufficient evidence to rank this cause confidently.")
+        }))
+      : [{
+          cause: "Unknown cause",
+          likelihood: "Uncertain",
+          reason: "The supplied evidence is not enough to identify a likely cause."
+        }],
+    recommended_action: text(raw?.recommended_action, "Get a qualified technician to inspect the device."),
+    repair_difficulty: difficulties.includes(raw?.repair_difficulty)
+      ? raw.repair_difficulty
+      : "Professional only",
+    potential_fix_cost_estimate: text(raw?.potential_fix_cost_estimate, "Unknown"),
+    cost_basis: text(raw?.cost_basis, "No reliable cost basis available from the supplied evidence."),
+    common_failures: Array.isArray(raw?.common_failures)
+      ? raw.common_failures.slice(0, 5).map(item => text(item)).filter(Boolean)
+      : [],
+    required_tools: Array.isArray(raw?.required_tools)
+      ? raw.required_tools.slice(0, 5).map(item => ({
+          name: text(item?.name),
+          reason: text(item?.reason)
+        })).filter(item => item.name)
+      : [],
+    repair_guides: []
+  };
+}
+
+function outputText(data) {
+  const modelStep = Array.isArray(data?.steps)
+    ? [...data.steps].reverse().find(step => step?.type === "model_output")
+    : null;
+
+  const block = Array.isArray(modelStep?.content)
+    ? modelStep.content.find(item => item?.type === "text")
+    : null;
+
+  return typeof block?.text === "string" ? block.text.trim() : "";
+}
+
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(503).json({
-      error: 'DeviceLens diagnosis is not configured yet. GEMINI_API_KEY is missing on the server.'
-    });
+    return res.status(503).json({ error: "DeviceLens is not configured. GEMINI_API_KEY is missing." });
   }
 
   let body;
   try {
     body = parseBody(req);
   } catch {
-    return res.status(400).json({ error: 'Invalid JSON body' });
+    return res.status(400).json({ error: "Invalid JSON body" });
   }
 
-  const {
-    category,
-    description = '',
-    images = [],
-    location,
-    manualDeviceName = '',
-    locale = '',
-    timezone = ''
-  } = body || {};
+  const category = text(body?.category);
+  const description = text(body?.description).slice(0, 1200);
+  const manualName = text(body?.manualDeviceName).slice(0, 120);
+  const images = Array.isArray(body?.images) ? body.images : [];
 
-  if (!category || typeof category !== 'string') {
-    return res.status(400).json({ error: 'A device category is required.' });
+  if (!category) {
+    return res.status(400).json({ error: "A device category is required." });
   }
 
-  if (!Array.isArray(images) || images.length < 1 || images.length > 5) {
-    return res.status(400).json({ error: 'Provide between 1 and 5 device images.' });
+  if (images.length < 1 || images.length > 5) {
+    return res.status(400).json({ error: "Provide between 1 and 5 images." });
   }
 
-  const parsedImages = images.map(cleanDataUrl).filter(Boolean);
-  if (parsedImages.length !== images.length) {
-    return res.status(400).json({ error: 'All uploads must be valid image data.' });
+  const cleanImages = images.map(cleanImage);
+  if (cleanImages.some(image => !image)) {
+    return res.status(400).json({ error: "Every upload must be a valid image." });
   }
 
-  const approximateSize = images.reduce((total, image) => total + String(image).length, 0);
-  if (approximateSize > 4_000_000) {
-    return res.status(413).json({ error: 'The uploaded images are too large. Remove one image or use smaller photos.' });
+  const totalLength = images.reduce((sum, image) => sum + String(image).length, 0);
+  if (totalLength > 5_500_000) {
+    return res.status(413).json({ error: "The photos are too large. Use fewer or smaller images." });
   }
-
-  const safeDescription = normalizeText(description).slice(0, 1200);
-  const safeManualName = normalizeText(manualDeviceName).slice(0, 120);
-  const lat = Number(location?.latitude);
-  const lng = Number(location?.longitude);
-  const hasLocation = Number.isFinite(lat) && Number.isFinite(lng);
-
-  const locationContext = hasLocation
-    ? `Approximate user coordinates: ${lat.toFixed(3)}, ${lng.toFixed(3)}.`
-    : 'User location is unavailable.';
 
   const prompt = [
-    'You are the diagnostic reasoning engine for DeviceLens.',
-    'Analyze the supplied photos and user description conservatively.',
-    '',
-    'Important accuracy rules:',
-    '- Do not pretend to see details that are not visible.',
-    '- If brand or exact model is uncertain, say Unknown or use a broader model family and lower confidence.',
-    '- Confidence is 0 to 100 and must reflect visible evidence, not optimism.',
-    '- If the photos show no clear fault and the user gave no useful symptom, set no_visible_issue=true and recommend gathering more symptoms.',
-    '- Treat swollen batteries, exposed mains wiring, CRT internals, microwave internals, large capacitors, power supplies, and similar hazards as high-voltage/high-risk.',
-    '- Do not invent repair shops, ratings, URLs, sellers, or exact product listings. Other services handle those.',
-    '- Cost and resale values are rough AI estimates only. Prefer broad ranges. Use Unknown when you cannot make a defensible estimate.',
-    '- Do not claim a repair is guaranteed.',
-    '- DIY guide titles should describe what to search for. Use an empty URI because DeviceLens resolves real video links separately.',
-    '',
+    "You are DeviceLens, an AI-assisted electronics triage system.",
+    "Your job is not to sound certain. Your job is to help the user decide what to do next safely.",
+    "",
+    "Core rules:",
+    "- Use only evidence visible in the supplied images plus symptoms explicitly provided by the user.",
+    "- Never invent text, serial numbers, ports, damage, symptoms, measurements, or internal faults that are not supported.",
+    "- Exact model identification must be conservative. If you can only support a family or brand, say so and lower confidence.",
+    "- identification_evidence must list concrete visible clues you actually used.",
+    "- A high confidence score requires multiple independent visible clues.",
+    "- A photo cannot prove most internal failures. Distinguish likely causes from confirmed faults.",
+    "- no_visible_issue=true when the images do not show an obvious problem and symptoms are absent or too vague.",
+    "- category_mismatch=true if the selected category conflicts with the device shown.",
+    "- Flag swollen batteries, burning, smoke, liquid near powered electronics, damaged mains wiring, exposed high-voltage sections, CRTs, microwaves, power supplies, large capacitors, or similar hazards.",
+    "- If the user may need to open hazardous hardware, use Professional only.",
+    "- Cost estimates must be rough ranges, never fake precision.",
+    "- Do not invent local shops, ratings, market listings, video URLs, parts sellers, or source citations.",
+    "- Do not call an estimate a diagnosis or guarantee.",
+    "",
     `Selected category: ${category}`,
-    safeManualName ? `User-provided device name: ${safeManualName}. Verify it against the photos rather than blindly trusting it.` : 'No device name supplied.',
-    safeDescription ? `Reported issue: ${safeDescription}` : 'No issue description supplied.',
-    locationContext,
-    locale ? `Browser locale: ${String(locale).slice(0, 30)}.` : '',
-    timezone ? `Browser timezone: ${String(timezone).slice(0, 60)}.` : '',
-    '',
-    'For currency_code, use the most likely local ISO 4217 currency when location/timezone makes that clear. Otherwise use USD.',
-    'For potential_fix_cost_estimate and resale_value fields, use compact ranges such as "GHS 600-900" or "USD 80-120".',
-    'For profit_potential, use Unknown if the inputs are too uncertain to calculate responsibly.',
-    'Return only the structured JSON requested by the schema.'
-  ].filter(Boolean).join('\n');
+    manualName
+      ? `User says the device may be: ${manualName}. Verify this against the images. Do not simply repeat it.`
+      : "The user did not provide a device name.",
+    description
+      ? `Reported symptoms/context: ${description}`
+      : "The user did not provide symptom details.",
+    "",
+    "Output guidance:",
+    "- summary: 1 to 3 clear sentences explaining what the evidence supports.",
+    "- likely_causes: rank up to 4 causes. Use Uncertain freely.",
+    "- recommended_action: one practical next action.",
+    "- repair_difficulty: Easy, Moderate, Difficult, or Professional only.",
+    "- potential_fix_cost_estimate: a rough range with currency when defensible. If location/currency is unknown or the fault is too uncertain, say Unknown instead of guessing.",
+    "- cost_basis: explain briefly why the estimate is broad or what typical work it assumes.",
+    "- common_failures: model/family failure points worth checking, not claims that this specific unit has them.",
+    "- required_tools: only tools relevant to the likely repair path.",
+    "- safety_notes: include only relevant warnings; an empty list is acceptable for low-risk cases."
+  ].join("\n");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 28_000);
+  const timer = setTimeout(() => controller.abort(), 32_000);
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                { text: prompt },
-                ...parsedImages.map(image => ({
-                  inlineData: {
-                    mimeType: image.mimeType,
-                    data: image.data
-                  }
-                }))
-              ]
-            }
-          ],
-          generationConfig: {
-            temperature: 0.2,
-            responseFormat: {
-              text: {
-                mimeType: 'application/json',
-                schema: diagnosisSchema
-              }
-            }
-          }
-        })
-      }
-    );
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey
+      },
+      body: JSON.stringify({
+        model: GEMINI_MODEL,
+        input: [
+          { type: "text", text: prompt },
+          ...cleanImages
+        ],
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema
+        }
+      })
+    });
 
     clearTimeout(timer);
 
     if (!response.ok) {
       const details = await response.text();
-      console.error('[DeviceLens] Gemini error', response.status, details.slice(0, 600));
+      console.error("[DeviceLens] Gemini error", response.status, details.slice(0, 700));
+
       if (response.status === 429) {
-        return res.status(429).json({ error: 'Diagnosis capacity reached. Try again shortly.' });
+        return res.status(429).json({ error: "Gemini quota reached. Try again later." });
       }
-      return res.status(502).json({ error: 'The diagnosis service returned an error.' });
+
+      return res.status(502).json({ error: "The assessment service returned an error." });
     }
 
     const data = await response.json();
-    const text = data?.candidates?.[0]?.content?.parts
-      ?.map(part => part?.text || '')
-      .join('')
-      .trim();
+    const rawText = outputText(data);
 
-    if (!text) {
-      return res.status(502).json({ error: 'The diagnosis service returned an empty result.' });
+    if (!rawText) {
+      return res.status(502).json({ error: "The assessment service returned no readable result." });
     }
 
     let parsed;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(rawText);
     } catch {
-      console.error('[DeviceLens] Gemini returned non-JSON output');
-      return res.status(502).json({ error: 'The diagnosis result could not be read.' });
+      console.error("[DeviceLens] structured output was not valid JSON");
+      return res.status(502).json({ error: "The assessment result could not be read." });
     }
 
-    return res.status(200).json(normalizeResult(parsed));
+    return res.status(200).json(normalize(parsed));
   } catch (error) {
     clearTimeout(timer);
-    if (error?.name === 'AbortError') {
-      return res.status(504).json({ error: 'Diagnosis timed out. Please try again.' });
+
+    if (error?.name === "AbortError") {
+      return res.status(504).json({ error: "Assessment timed out. Please try again." });
     }
-    console.error('[DeviceLens] diagnose handler failed', error);
-    return res.status(500).json({ error: 'Diagnosis failed unexpectedly.' });
+
+    console.error("[DeviceLens] diagnose route failed", error);
+    return res.status(500).json({ error: "Assessment failed unexpectedly." });
   }
 }
