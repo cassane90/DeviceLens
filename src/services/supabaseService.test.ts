@@ -31,7 +31,7 @@ const { mockSupabase, MOCK_USER } = vi.hoisted(() => {
 });
 
 // Mock constants
-vi.mock('../../constants', () => ({
+vi.mock('../constants', () => ({
   API_KEYS: {
     SUPABASE_URL: 'https://test.supabase.co',
     SUPABASE_ANON: 'test-key',
@@ -111,7 +111,7 @@ describe('supabaseService', () => {
       expect(record).toBeDefined();
       expect(record.description).toBe('Broken screen');
       
-      const localLogs = JSON.parse(localStorage.getItem('titan_local_logs') || '[]');
+      const localLogs = JSON.parse(localStorage.getItem('dl_local_logs') || '[]');
       expect(localLogs).toHaveLength(1);
     });
   });
