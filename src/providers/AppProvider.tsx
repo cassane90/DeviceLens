@@ -1,7 +1,6 @@
-
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { UserProfile, QueryRecord, ThemeMode, UserRole } from '../types';
-import { supabaseService, GUEST_PROFILE_KEY } from '../services/supabaseService';
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { UserProfile, QueryRecord, ThemeMode, UserRole } from "../types";
+import { supabaseService, GUEST_PROFILE_KEY } from "../services/supabaseService";
 
 interface AppContextType {
   user: UserProfile | null;
@@ -12,6 +11,7 @@ interface AppContextType {
   toggleTheme: () => void;
   refreshState: () => Promise<void>;
   signOut: () => Promise<void>;
+  continueAsGuest: () => Promise<void>;
   updateUser: (updates: Partial<UserProfile>) => Promise<void>;
   showPremiumModal: boolean;
   setShowPremiumModal: (show: boolean) => void;
@@ -20,97 +20,121 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const DEFAULT_GUEST: UserProfile = {
-  id: 'guest',
-  email: 'guest@devicelens.app',
+  id: "guest",
+  email: "guest@devicelens.app",
   role: UserRole.OPERATOR,
   is_premium: false,
   query_count: 0,
   onboarding_accepted: false,
-  permissions: { camera: 'granted', location: 'granted' },
+  permissions: { camera: "prompt", location: "prompt" },
 };
+
+function readGuest(): UserProfile | null {
+  try {
+    const stored = localStorage.getItem(GUEST_PROFILE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [history, setHistory] = useState<QueryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [theme, setTheme] = useState<ThemeMode>('dark');
+  const [theme, setTheme] = useState<ThemeMode>("dark");
   const [showPremiumModal, setShowPremiumModal] = useState(false);
 
   const refreshState = async () => {
-    let u = await supabaseService.getProfile();
-    if (!u) {
-      const stored = localStorage.getItem(GUEST_PROFILE_KEY);
-      u = stored ? JSON.parse(stored) : DEFAULT_GUEST;
+    const guest = readGuest();
+    let profile = guest;
+
+    if (!guest) {
+      profile = await supabaseService.getProfile();
     }
-    const h = await supabaseService.getLogs();
-    setUser(u);
-    setHistory(h);
+
+    const logs = await supabaseService.getLogs();
+    setUser(profile);
+    setHistory(logs);
+    setIsAuthenticated(Boolean(profile));
   };
 
   useEffect(() => {
     const init = async () => {
-      const client = supabaseService.client;
-      if (!client) {
-        await refreshState();
-        setIsLoading(false);
-        return;
-      }
-
-      const session = await client.auth.getSession();
-      setIsAuthenticated(!!session.data.session || !!localStorage.getItem(GUEST_PROFILE_KEY));
-
       await refreshState();
 
-      client.auth.onAuthStateChange(async (_event, session) => {
-        setIsAuthenticated(!!session || !!localStorage.getItem(GUEST_PROFILE_KEY));
-        await refreshState();
-      });
+      const client = supabaseService.client;
+      if (client) {
+        client.auth.onAuthStateChange(async () => {
+          await refreshState();
+        });
+      }
 
       setIsLoading(false);
     };
+
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    document.documentElement.classList.remove("dark", "light");
+    document.documentElement.classList.add(theme);
+  }, [theme]);
+
+  const continueAsGuest = async () => {
+    const existing = readGuest();
+    const guest = existing || DEFAULT_GUEST;
+    localStorage.setItem(GUEST_PROFILE_KEY, JSON.stringify(guest));
+    setUser(guest);
+    setIsAuthenticated(true);
+    setHistory(await supabaseService.getLogs());
+  };
+
   const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme);
-    document.documentElement.classList.remove('dark', 'light');
-    document.documentElement.classList.add(newTheme);
+    setTheme(current => current === "dark" ? "light" : "dark");
   };
 
   const signOut = async () => {
     await supabaseService.signOut();
     localStorage.removeItem(GUEST_PROFILE_KEY);
-    window.location.reload();
+    setUser(null);
+    setHistory([]);
+    setIsAuthenticated(false);
   };
 
   const updateUser = async (updates: Partial<UserProfile>) => {
-    if (user?.id === 'guest') {
-      const newProfile = { ...user, ...updates };
-      setUser(newProfile);
-      localStorage.setItem(GUEST_PROFILE_KEY, JSON.stringify(newProfile));
-    } else {
-      await supabaseService.updateProfile(updates);
-      await refreshState();
+    if (user?.id === "guest") {
+      const next = { ...user, ...updates };
+      setUser(next);
+      localStorage.setItem(GUEST_PROFILE_KEY, JSON.stringify(next));
+      return;
     }
+
+    await supabaseService.updateProfile(updates);
+    await refreshState();
   };
 
-  return (
-    <AppContext.Provider value={{
-      user, history, isLoading, isAuthenticated, theme,
-      toggleTheme, refreshState, signOut, updateUser,
-      showPremiumModal, setShowPremiumModal,
-    }}>
-      {children}
-    </AppContext.Provider>
-  );
+  const value = useMemo(() => ({
+    user,
+    history,
+    isLoading,
+    isAuthenticated,
+    theme,
+    toggleTheme,
+    refreshState,
+    signOut,
+    continueAsGuest,
+    updateUser,
+    showPremiumModal,
+    setShowPremiumModal,
+  }), [user, history, isLoading, isAuthenticated, theme, showPremiumModal]);
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
 
-// eslint-disable-next-line react-refresh/only-export-components
 export const useApp = () => {
   const context = useContext(AppContext);
-  if (!context) throw new Error('useApp must be used within AppProvider');
+  if (!context) throw new Error("useApp must be used within AppProvider");
   return context;
 };
