@@ -3,10 +3,32 @@ import { QueryRecord } from "../types";
 const HISTORY_KEY = "dl_local_logs";
 const MAX_HISTORY = 30;
 
+function isV1Record(value: unknown): value is QueryRecord {
+  if (!value || typeof value !== "object") return false;
+  const record = value as QueryRecord;
+  const result = record.ai_response;
+  return Boolean(
+    record.id &&
+    record.created_at &&
+    result &&
+    typeof result.summary === "string" &&
+    Array.isArray(result.likely_causes) &&
+    Array.isArray(result.identification_evidence) &&
+    Array.isArray(result.safety_notes) &&
+    Array.isArray(result.required_tools) &&
+    Array.isArray(result.repair_guides)
+  );
+}
+
 function read(): QueryRecord[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    const current = parsed.filter(isV1Record);
+    if (current.length !== parsed.length) {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(current));
+    }
+    return current;
   } catch {
     return [];
   }
