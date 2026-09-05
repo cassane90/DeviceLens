@@ -99,13 +99,13 @@ function normalize(raw, verified) {
     confidence_score: confidence,
     identity_status: identityStatus(confidence, verified),
     identification_evidence: Array.isArray(raw?.identification_evidence)
-      ? raw.identification_evidence.slice(0, 6).map(text).filter(Boolean) : [],
+      ? raw.identification_evidence.slice(0, 6).map(item => text(item)).filter(Boolean) : [],
     category_mismatch: Boolean(raw?.category_mismatch),
     no_visible_issue: Boolean(raw?.no_visible_issue),
     risk_level: risks.includes(raw?.risk_level) ? raw.risk_level : "Moderate",
     is_high_voltage: Boolean(raw?.is_high_voltage),
     safety_notes: Array.isArray(raw?.safety_notes)
-      ? raw.safety_notes.slice(0, 6).map(text).filter(Boolean) : [],
+      ? raw.safety_notes.slice(0, 6).map(item => text(item)).filter(Boolean) : [],
     summary: text(raw?.summary, "The available evidence is not enough for a confident assessment."),
     likely_causes: Array.isArray(raw?.likely_causes)
       ? raw.likely_causes.slice(0, 4).map(item => ({
@@ -115,15 +115,15 @@ function normalize(raw, verified) {
         }))
       : [{ cause: "Unknown cause", likelihood: "Uncertain", reason: "Insufficient evidence." }],
     diagnostic_evidence: Array.isArray(raw?.diagnostic_evidence)
-      ? raw.diagnostic_evidence.slice(0, 8).map(text).filter(Boolean) : [],
+      ? raw.diagnostic_evidence.slice(0, 8).map(item => text(item)).filter(Boolean) : [],
     unresolved_uncertainties: Array.isArray(raw?.unresolved_uncertainties)
-      ? raw.unresolved_uncertainties.slice(0, 6).map(text).filter(Boolean) : [],
+      ? raw.unresolved_uncertainties.slice(0, 6).map(item => text(item)).filter(Boolean) : [],
     recommended_action: text(raw?.recommended_action, "Have a qualified technician inspect the device."),
     repair_difficulty: difficulties.includes(raw?.repair_difficulty) ? raw.repair_difficulty : "Professional only",
     potential_fix_cost_estimate: text(raw?.potential_fix_cost_estimate, "Unknown"),
     cost_basis: text(raw?.cost_basis, "No reliable cost basis available."),
     common_failures: Array.isArray(raw?.common_failures)
-      ? raw.common_failures.slice(0, 5).map(text).filter(Boolean) : [],
+      ? raw.common_failures.slice(0, 5).map(item => text(item)).filter(Boolean) : [],
     required_tools: Array.isArray(raw?.required_tools)
       ? raw.required_tools.slice(0, 5).map(item => ({
           name: text(item?.name),
