@@ -1,6 +1,6 @@
 import { DeviceCategory, DiagnosisResult } from "../types";
 
-const CACHE_KEY_PREFIX = "dl_cache_";
+const CACHE_KEY_PREFIX = "dl_v1_cache_";
 const CACHE_EXPIRY_MS = 1000 * 60 * 60 * 24 * 7;
 
 interface CacheEntry {
