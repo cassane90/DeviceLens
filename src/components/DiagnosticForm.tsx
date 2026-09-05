@@ -61,7 +61,6 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
     }
     setErrorMsg(null);
     setAnalyzing(true);
-    recordScan();
 
     let location: { latitude: number; longitude: number } | undefined;
     try {
@@ -75,7 +74,7 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
       location = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
     } catch { /* proceed without location */ }
 
-    const cached = cacheService.get(category, desc, images, location?.latitude, location?.longitude);
+    const cached = cacheService.get(category, desc, images, location?.latitude, location?.longitude, manualName);
 
     try {
       let result;
@@ -87,7 +86,7 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
         setStatus('Identifying your device…');
         const [aiResult, nearbyShops] = await Promise.all([
           runForensicAudit(category, desc, images, location, manualName),
-          location ? findNearbyRepairShops(location.latitude, location.longitude) : Promise.resolve([]),
+          location ? findNearbyRepairShops(location.latitude, location.longitude, 8000, manualName || category) : Promise.resolve([]),
         ]);
         result = aiResult;
 
@@ -114,9 +113,12 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
           );
         }
 
-        cacheService.set(category, desc, images, result, location?.latitude, location?.longitude);
+        cacheService.set(category, desc, images, result, location?.latitude, location?.longitude, manualName);
       }
-      // Show results immediately — don't block on cloud save
+      // Count only successful diagnoses.
+      recordScan();
+
+      // Show results immediately without blocking on cloud persistence.
       const localLog = {
         id: `local_${Date.now()}`,
         created_at: new Date().toISOString(),
@@ -126,19 +128,28 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
         ai_response: result,
       };
       onSuccess(localLog);
-      // Save to Supabase in background — silent fail is fine, cache has the result
+
+      // Save history in the background. Guest mode uses localStorage.
       supabaseService.saveLog(category, desc, images, result)
         .then(() => refreshState())
-        .catch(() => {});
+        .catch((saveError) => {
+          console.warn("[DeviceLens] History save failed", saveError);
+        });
     } catch (e) {
       logError(e, 'DiagnosticForm.handleAudit');
       let msg = 'Analysis failed. Please try again.';
       if (e instanceof AppError) {
         msg = e.userMessage;
       } else if (e instanceof Error) {
-        if (e.message.includes('429'))    msg = 'DeviceLens is busy — please try again in a minute.';
-        else if (e.message.includes('timed out')) msg = 'Analysis timed out — please try again.';
-        else msg = e.message.slice(0, 140);
+        if (e.message.includes("429") || e.message.toLowerCase().includes("capacity")) {
+          msg = "DeviceLens is busy. Please try again in a minute.";
+        } else if (e.message.toLowerCase().includes("timed out")) {
+          msg = "Analysis timed out. Please try again.";
+        } else if (e.message.includes("GEMINI_API_KEY") || e.message.includes("not configured")) {
+          msg = "DeviceLens diagnosis is not configured on this deployment yet.";
+        } else {
+          msg = e.message.slice(0, 180);
+        }
       }
       setAnalyzing(false);
       setErrorMsg(msg);
@@ -158,7 +169,7 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
         <h2 className="text-xl font-bold text-gray-900 dark:text-dl-dt">Looking at your device…</h2>
         <p className="text-sm text-gray-500 dark:text-dl-dt2 mt-1">{status}</p>
       </div>
-      <p className="text-xs text-gray-400 dark:text-dl-dt2">Usually done in under 15 seconds</p>
+      <p className="text-xs text-gray-400 dark:text-dl-dt2">Analysis time depends on image size and network conditions.</p>
     </div>
   );
 
@@ -170,7 +181,7 @@ const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: ()
       <div className="flex items-center justify-between pt-1">
         <div>
           <h2 className="text-2xl font-extrabold text-gray-900 dark:text-dl-dt tracking-tight">What's broken?</h2>
-          <p className="text-sm text-gray-400 dark:text-dl-dt2 mt-0.5">Show us a photo and we'll figure it out</p>
+          <p className="text-sm text-gray-400 dark:text-dl-dt2 mt-0.5">Add clear photos and symptoms for an AI-assisted assessment.</p>
         </div>
         <button onClick={onCancel} className="text-sm text-gray-400 dark:text-dl-dt2 hover:text-gray-700 dark:hover:text-dl-dt font-medium transition-colors">
           Cancel
