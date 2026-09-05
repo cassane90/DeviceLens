@@ -10,8 +10,11 @@ DeviceLens v1 does:
 
 - accept 1 to 5 device photos
 - accept a device category, optional known model, and symptom description
-- use Gemini multimodal analysis for identification and triage
-- show identification confidence and the visible evidence used
+- run a first Gemini multimodal pass for device identification
+- show exact-model confidence and the visible evidence used
+- ask 3 to 6 targeted diagnostic questions based on the device and symptoms
+- let the user verify an exact model from a model plate, About screen, BIOS, service tag, or equivalent
+- run a second guided assessment using the original image context plus the user's answers
 - rank likely causes without pretending they are confirmed faults
 - flag safety and high-voltage risks
 - estimate repair difficulty and a rough repair-cost range when defensible
@@ -67,7 +70,7 @@ The repository is structured for Vercel:
 - framework: Vite
 - build command: `npm run build`
 - output: `dist`
-- server routes: `/api/diagnose`, `/api/ifixit`, `/api/health`
+- server routes: `/api/identify`, `/api/diagnose`, `/api/cleanup`, `/api/ifixit`, `/api/health`
 
 Set the server environment variable `GEMINI_API_KEY` before deploying.
 
@@ -78,7 +81,9 @@ DeviceLens is an AI-assisted triage tool. Photos cannot prove every internal fau
 The application is designed to:
 
 - show uncertainty
-- separate visible evidence from inferred causes
+- separate exact-model identity confidence from fault confidence
+- separate visible evidence, user observations, and inferred causes
+- explicitly show unresolved uncertainties
 - avoid inventing repair shops and source links
 - avoid fake precision for repair costs
 - warn users away from hazardous DIY work
