@@ -1,418 +1,302 @@
-import React, { useState, useRef } from 'react';
-import { DeviceCategory } from '../types';
-import { runForensicAudit } from '../services/geminiService';
-import { supabaseService } from '../services/supabaseService';
-import { cacheService } from '../services/cacheService';
-import { useApp } from '../providers/AppProvider';
-import { AppError, logError } from '../utils/errors';
-import { compressImage } from '../utils/imageUtils';
-import { findNearbyRepairShops } from '../services/placesService';
-import { enrichDiyGuides } from '../services/youtubeService';
-import { canScan, recordScan, getScansUsedToday, getDailyLimit, timeUntilReset } from '../services/scanLimitService';
-import ToastNotification from './ToastNotification';
+import React, { useRef, useState } from "react";
+import { DeviceCategory, QueryRecord } from "../types";
+import { runForensicAudit } from "../services/geminiService";
+import { findRepairGuides } from "../services/repairGuideService";
+import { cacheService } from "../services/cacheService";
+import { useApp } from "../providers/AppProvider";
+import { compressImage } from "../utils/imageUtils";
+import ToastNotification from "./ToastNotification";
 
 const CATEGORY_ICONS: Record<DeviceCategory, string> = {
-  [DeviceCategory.PHONE]:     'smartphone',
-  [DeviceCategory.LAPTOP]:    'laptop',
-  [DeviceCategory.TABLET]:    'tablet',
-  [DeviceCategory.CONSOLE]:   'sports_esports',
-  [DeviceCategory.DESKTOP]:   'computer',
-  [DeviceCategory.APPLIANCE]: 'kitchen',
-  [DeviceCategory.OTHER]:     'devices_other',
+  [DeviceCategory.PHONE]: "smartphone",
+  [DeviceCategory.LAPTOP]: "laptop",
+  [DeviceCategory.TABLET]: "tablet",
+  [DeviceCategory.CONSOLE]: "sports_esports",
+  [DeviceCategory.DESKTOP]: "computer",
+  [DeviceCategory.APPLIANCE]: "kitchen",
+  [DeviceCategory.OTHER]: "devices_other",
 };
 
-const isTouchDevice = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+const isTouchDevice = () => "ontouchstart" in window || navigator.maxTouchPoints > 0;
 
-const DiagnosticForm: React.FC<{ onSuccess: (log: unknown) => void; onCancel: () => void }> = ({ onSuccess, onCancel }) => {
-  const { refreshState, user, setShowPremiumModal } = useApp();
+const DiagnosticForm: React.FC<{
+  onSuccess: (log: QueryRecord) => void;
+  onCancel: () => void;
+}> = ({ onSuccess, onCancel }) => {
+  const { saveHistory } = useApp();
   const [analyzing, setAnalyzing] = useState(false);
   const [isMobile] = useState(isTouchDevice);
   const [images, setImages] = useState<string[]>([]);
   const [category, setCategory] = useState<DeviceCategory>(DeviceCategory.PHONE);
-  const [desc, setDesc] = useState('');
-  const [manualName, setManualName] = useState('');
-  const [status, setStatus] = useState('');
+  const [description, setDescription] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [status, setStatus] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Two separate hidden file inputs — one with capture for camera, one without for gallery
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const readFiles = (files: FileList | null) => {
     if (!files) return;
-    const slots = 5 - images.length;
-    const toRead = Math.min(files.length, slots);
-    for (let i = 0; i < toRead; i++) {
-      const file = files[i];
+
+    const remaining = Math.max(0, 5 - images.length);
+    const selected = Array.from(files).slice(0, remaining);
+
+    selected.forEach(file => {
+      if (!file.type.startsWith("image/")) return;
+
       const reader = new FileReader();
       reader.onloadend = async () => {
-        const compressed = await compressImage(reader.result as string);
-        setImages(prev => [...prev, compressed]);
+        const value = reader.result;
+        if (typeof value !== "string") return;
+        const compressed = await compressImage(value);
+        setImages(current => current.length >= 5 ? current : [...current, compressed]);
       };
       reader.readAsDataURL(file);
-    }
+    });
   };
 
   const handleAudit = async () => {
-    if (images.length === 0) return;
-    if (!canScan(user?.is_premium ?? false)) {
-      setErrorMsg(`Daily limit reached — resets in ${timeUntilReset()}. Upgrade to Pro for 250 scans/day.`);
-      return;
-    }
+    if (images.length === 0 || analyzing) return;
+
     setErrorMsg(null);
     setAnalyzing(true);
 
-    let location: { latitude: number; longitude: number } | undefined;
     try {
-      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          timeout: 10000,
-          enableHighAccuracy: true,
-          maximumAge: 0,
-        })
-      );
-      location = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-    } catch { /* proceed without location */ }
+      const cached = cacheService.get(category, description, images, undefined, undefined, manualName);
 
-    const cached = cacheService.get(category, desc, images, location?.latitude, location?.longitude, manualName);
-
-    try {
-      let result;
-      if (cached) {
-        setStatus('Loading saved results…');
-        result = cached;
+      let result = cached;
+      if (result) {
+        setStatus("Loading your recent matching assessment...");
       } else {
-        // Run AI analysis and Places lookup in parallel
-        setStatus('Identifying your device…');
-        const [aiResult, nearbyShops] = await Promise.all([
-          runForensicAudit(category, desc, images, location, manualName),
-          location ? findNearbyRepairShops(location.latitude, location.longitude, 8000, manualName || category) : Promise.resolve([]),
-        ]);
-        result = aiResult;
+        setStatus("Identifying the device and reviewing the symptoms...");
+        result = await runForensicAudit(category, description, images, undefined, manualName);
 
-        // Replace AI-hallucinated shops with real Places API results + trust signals
-        if (nearbyShops.length > 0) {
-          result.recommended_repair_hubs = nearbyShops.map(s => ({
-            name: s.name,
-            address: s.address,
-            uri: s.uri,
-            rating: s.rating ? `${s.rating} (${s.reviewCount} reviews)` : '',
-            specialty: s.isOpenNow === true ? 'Open now' : s.isOpenNow === false ? 'Closed now' : '',
-            topReview: s.topReview,
-            reviewCount: s.reviewCount,
-            verified: true,
-          }));
-        }
+        setStatus("Checking for matching repair guides...");
+        result.repair_guides = await findRepairGuides(
+          [result.brand, result.model].filter(Boolean).join(" ").trim(),
+          description
+        );
 
-        // Enrich DIY guide links with real YouTube video IDs when possible
-        if (result.diy_guides?.length) {
-          result.diy_guides = await enrichDiyGuides(
-            result.diy_guides,
-            `${result.brand} ${result.model}`,
-            desc
-          );
-        }
-
-        cacheService.set(category, desc, images, result, location?.latitude, location?.longitude, manualName);
+        cacheService.set(category, description, images, result, undefined, undefined, manualName);
       }
-      // Count only successful diagnoses.
-      recordScan();
 
-      // Show results immediately without blocking on cloud persistence.
-      const localLog = {
-        id: `local_${Date.now()}`,
+      const record: QueryRecord = {
+        id: crypto.randomUUID ? crypto.randomUUID() : `scan_${Date.now()}`,
         created_at: new Date().toISOString(),
         category,
-        description: desc,
+        description: description.trim(),
+        device_name: manualName.trim() || undefined,
         photo_urls: images.slice(0, 1),
         ai_response: result,
       };
-      onSuccess(localLog);
 
-      // Save history in the background. Guest mode uses localStorage.
-      supabaseService.saveLog(category, desc, images, result)
-        .then(() => refreshState())
-        .catch((saveError) => {
-          console.warn("[DeviceLens] History save failed", saveError);
-        });
-    } catch (e) {
-      logError(e, 'DiagnosticForm.handleAudit');
-      let msg = 'Analysis failed. Please try again.';
-      if (e instanceof AppError) {
-        msg = e.userMessage;
-      } else if (e instanceof Error) {
-        if (e.message.includes("429") || e.message.toLowerCase().includes("capacity")) {
-          msg = "DeviceLens is busy. Please try again in a minute.";
-        } else if (e.message.toLowerCase().includes("timed out")) {
-          msg = "Analysis timed out. Please try again.";
-        } else if (e.message.includes("GEMINI_API_KEY") || e.message.includes("not configured")) {
-          msg = "DeviceLens diagnosis is not configured on this deployment yet.";
+      saveHistory(record);
+      onSuccess(record);
+    } catch (error) {
+      console.error("[DeviceLens] scan failed", error);
+      let message = "The assessment failed. Please try again.";
+
+      if (error instanceof Error) {
+        const lower = error.message.toLowerCase();
+        if (lower.includes("429") || lower.includes("capacity") || lower.includes("quota")) {
+          message = "The Gemini quota is currently exhausted. Try again later.";
+        } else if (lower.includes("timeout") || lower.includes("timed out")) {
+          message = "The assessment timed out. Try again with fewer or smaller photos.";
+        } else if (lower.includes("not configured") || lower.includes("api_key")) {
+          message = "The Gemini API key is not configured on this deployment.";
         } else {
-          msg = e.message.slice(0, 180);
+          message = error.message.slice(0, 180);
         }
       }
+
+      setErrorMsg(message);
       setAnalyzing(false);
-      setErrorMsg(msg);
     }
   };
 
-  /* ── ANALYZING OVERLAY ─────────────────────────────────────────────────────── */
-  if (analyzing) return (
-    <div className="flex flex-col items-center justify-center min-h-[70vh] p-10 text-center gap-6 page-enter">
-      <div className="relative w-20 h-20">
-        <div className="w-20 h-20 rounded-full bg-primary/10 dark:bg-accent/10 flex items-center justify-center">
-          <span className="material-symbols-outlined text-primary dark:text-accent text-4xl">auto_awesome</span>
+  if (analyzing) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh] p-10 text-center gap-6 page-enter">
+        <div className="relative w-20 h-20">
+          <div className="w-20 h-20 rounded-full bg-primary/10 dark:bg-accent/10 flex items-center justify-center">
+            <span className="material-symbols-outlined text-primary dark:text-accent text-4xl">frame_inspect</span>
+          </div>
+          <div className="absolute inset-0 rounded-full border-2 border-primary/20 dark:border-accent/20 border-t-primary dark:border-t-accent animate-spin" />
         </div>
-        <div className="absolute inset-0 rounded-full border-2 border-primary/20 dark:border-accent/20 border-t-primary dark:border-t-accent animate-spin" />
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-dl-dt">Assessing your device</h2>
+          <p className="text-sm text-gray-500 dark:text-dl-dt2 mt-2">{status}</p>
+        </div>
+        <p className="text-xs text-gray-400 dark:text-dl-dt2 max-w-xs">
+          DeviceLens is looking for visible evidence and comparing it with the symptoms you provided.
+        </p>
       </div>
-      <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-dl-dt">Looking at your device…</h2>
-        <p className="text-sm text-gray-500 dark:text-dl-dt2 mt-1">{status}</p>
-      </div>
-      <p className="text-xs text-gray-400 dark:text-dl-dt2">Analysis time depends on image size and network conditions.</p>
-    </div>
-  );
+    );
+  }
 
-  /* ── INTAKE FORM ───────────────────────────────────────────────────────────── */
   return (
     <div className="page-enter p-5 pb-40 space-y-6">
-
-      {/* Header */}
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex items-start justify-between gap-4 pt-1">
         <div>
-          <h2 className="text-2xl font-extrabold text-gray-900 dark:text-dl-dt tracking-tight">What's broken?</h2>
-          <p className="text-sm text-gray-400 dark:text-dl-dt2 mt-0.5">Add clear photos and symptoms for an AI-assisted assessment.</p>
+          <p className="text-xs font-bold tracking-[0.16em] uppercase text-primary dark:text-accent">New scan</p>
+          <h2 className="text-2xl font-extrabold text-gray-900 dark:text-dl-dt tracking-tight mt-1">Show me the device.</h2>
+          <p className="text-sm text-gray-400 dark:text-dl-dt2 mt-1">Clear photos plus good symptoms give better results.</p>
         </div>
-        <button onClick={onCancel} className="text-sm text-gray-400 dark:text-dl-dt2 hover:text-gray-700 dark:hover:text-dl-dt font-medium transition-colors">
+        <button onClick={onCancel} className="text-sm text-gray-400 dark:text-dl-dt2 hover:text-gray-700 dark:hover:text-dl-dt font-medium">
           Cancel
         </button>
       </div>
 
-      {/* Error toast */}
-      {errorMsg && (
-        <ToastNotification message={errorMsg} type="error" onDismiss={() => setErrorMsg(null)} />
-      )}
+      {errorMsg && <ToastNotification message={errorMsg} type="error" onDismiss={() => setErrorMsg(null)} />}
 
-      {/* ── PHOTOS ─────────────────────────────────────────────────────────────── */}
       <section className="space-y-3">
-        <p className="text-sm font-semibold text-gray-700 dark:text-dl-dt flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-base text-primary dark:text-accent">photo_library</span>
-          Photos
-          <span className="text-xs font-normal text-gray-400 dark:text-dl-dt2">(up to 5)</span>
-        </p>
+        <div className="flex items-end justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-800 dark:text-dl-dt">Photos</p>
+            <p className="text-xs text-gray-400 dark:text-dl-dt2">1 required, up to 5.</p>
+          </div>
+          <span className="text-xs font-mono text-gray-400 dark:text-dl-dt2">{images.length}/5</span>
+        </div>
 
         <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1 items-start">
-
-          {/* Existing photo thumbnails */}
-          {images.map((img, i) => (
-            <div key={i} className="relative shrink-0 w-24 h-32 rounded-xl overflow-hidden border border-gray-200 dark:border-dl-dark-b shadow-soft group">
-              <img src={img} className="w-full h-full object-cover" alt={`Device photo ${i + 1}`} />
+          {images.map((image, index) => (
+            <div key={index} className="relative shrink-0 w-24 h-32 rounded-xl overflow-hidden border border-gray-200 dark:border-dl-dark-b shadow-soft group">
+              <img src={image} className="w-full h-full object-cover" alt={`Device photo ${index + 1}`} />
               <button
-                onClick={() => setImages(prev => prev.filter((_, idx) => idx !== i))}
-                aria-label={`Remove photo ${i + 1}`}
-                className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/70 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-red-600 transition-all"
+                type="button"
+                onClick={() => setImages(current => current.filter((_, i) => i !== index))}
+                aria-label={`Remove photo ${index + 1}`}
+                className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/70 flex items-center justify-center text-white opacity-80 hover:opacity-100"
               >
-                <span className="material-symbols-outlined text-sm leading-none">close</span>
+                <span className="material-symbols-outlined text-sm">close</span>
               </button>
             </div>
           ))}
 
-          {/* Add-photo buttons — only show while under limit */}
           {images.length < 5 && (
             <>
-              {/* CAMERA button — only shown on touch/mobile devices where capture="environment" opens the camera app */}
               {isMobile && (
                 <button
+                  type="button"
                   onClick={() => cameraInputRef.current?.click()}
-                  aria-label="Take a photo"
-                  className="
-                    shrink-0 w-24 h-32 rounded-xl border-2 border-dashed
-                    border-gray-200 dark:border-dl-dark-b
-                    flex flex-col items-center justify-center gap-2
-                    hover:border-primary dark:hover:border-accent
-                    hover:bg-primary/5 dark:hover:bg-accent/5
-                    text-gray-400 dark:text-dl-dt2
-                    hover:text-primary dark:hover:text-accent
-                    transition-all active:scale-95
-                  "
+                  className="shrink-0 w-24 h-32 rounded-xl border-2 border-dashed border-gray-200 dark:border-dl-dark-b flex flex-col items-center justify-center gap-2 text-gray-400 dark:text-dl-dt2 hover:border-primary dark:hover:border-accent hover:text-primary dark:hover:text-accent transition-colors"
                 >
                   <span className="material-symbols-outlined text-3xl">photo_camera</span>
-                  <span className="text-[10px] font-semibold leading-tight text-center px-1">Take Photo</span>
+                  <span className="text-[10px] font-semibold">Camera</span>
                 </button>
               )}
 
-              {/* GALLERY / file upload button — always visible */}
               <button
+                type="button"
                 onClick={() => galleryInputRef.current?.click()}
-                aria-label="Choose from gallery or files"
-                className="
-                  shrink-0 w-24 h-32 rounded-xl border-2 border-dashed
-                  border-gray-200 dark:border-dl-dark-b
-                  flex flex-col items-center justify-center gap-2
-                  hover:border-success dark:hover:border-success-d
-                  hover:bg-green-50 dark:hover:bg-success-d/5
-                  text-gray-400 dark:text-dl-dt2
-                  hover:text-success dark:hover:text-success-d
-                  transition-all active:scale-95
-                "
+                className="shrink-0 w-24 h-32 rounded-xl border-2 border-dashed border-gray-200 dark:border-dl-dark-b flex flex-col items-center justify-center gap-2 text-gray-400 dark:text-dl-dt2 hover:border-primary dark:hover:border-accent hover:text-primary dark:hover:text-accent transition-colors"
               >
                 <span className="material-symbols-outlined text-3xl">upload_file</span>
-                <span className="text-[10px] font-semibold leading-tight text-center px-1">Upload</span>
+                <span className="text-[10px] font-semibold">Upload</span>
               </button>
             </>
           )}
         </div>
 
-        {/* Hidden native file inputs */}
-        {/* Camera: capture="environment" triggers rear camera on mobile */}
         <input
           ref={cameraInputRef}
           type="file"
           accept="image/*"
           capture="environment"
           className="hidden"
-          onChange={e => { readFiles(e.target.files); e.target.value = ''; }}
+          onChange={event => {
+            readFiles(event.target.files);
+            event.target.value = "";
+          }}
         />
-        {/* Gallery: no capture, allows picking from files/gallery */}
         <input
           ref={galleryInputRef}
           type="file"
           accept="image/*"
           multiple
           className="hidden"
-          onChange={e => { readFiles(e.target.files); e.target.value = ''; }}
+          onChange={event => {
+            readFiles(event.target.files);
+            event.target.value = "";
+          }}
         />
       </section>
 
-      {/* ── DEVICE TYPE ──────────────────────────────────────────────────────────── */}
       <section className="space-y-3">
-        <p className="text-sm font-semibold text-gray-700 dark:text-dl-dt flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-base text-primary dark:text-accent">devices</span>
-          Device type
-        </p>
+        <p className="text-sm font-semibold text-gray-800 dark:text-dl-dt">Device type</p>
         <div className="grid grid-cols-2 gap-2">
-          {(Object.values(DeviceCategory) as DeviceCategory[]).map(cat => (
+          {(Object.values(DeviceCategory) as DeviceCategory[]).map(item => (
             <button
-              key={cat}
-              onClick={() => setCategory(cat)}
-              aria-pressed={category === cat}
-              className={`
-                flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all
-                ${category === cat
-                  ? 'bg-primary/5 dark:bg-accent/10 border-primary dark:border-accent shadow-soft'
-                  : 'bg-white dark:bg-dl-dark-s border-gray-200 dark:border-dl-dark-b hover:border-primary/40 dark:hover:border-accent/30'
-                }
-              `}
+              key={item}
+              type="button"
+              onClick={() => setCategory(item)}
+              aria-pressed={category === item}
+              className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${
+                category === item
+                  ? "bg-primary/5 dark:bg-accent/10 border-primary dark:border-accent"
+                  : "bg-white dark:bg-dl-dark-s border-gray-200 dark:border-dl-dark-b"
+              }`}
             >
-              <span className={`material-symbols-outlined text-xl ${category === cat ? 'text-primary dark:text-accent' : 'text-gray-400 dark:text-dl-dt2'}`}>
-                {CATEGORY_ICONS[cat]}
+              <span className={`material-symbols-outlined text-xl ${category === item ? "text-primary dark:text-accent" : "text-gray-400 dark:text-dl-dt2"}`}>
+                {CATEGORY_ICONS[item]}
               </span>
-              <span className={`text-xs font-medium ${category === cat ? 'text-primary dark:text-accent' : 'text-gray-700 dark:text-dl-dt'}`}>
-                {cat}
+              <span className={`text-xs font-medium ${category === item ? "text-primary dark:text-accent" : "text-gray-700 dark:text-dl-dt"}`}>
+                {item}
               </span>
             </button>
           ))}
         </div>
       </section>
 
-      {/* ── ISSUE DESCRIPTION ───────────────────────────────────────────────────── */}
       <section className="space-y-2">
-        <label className="text-sm font-semibold text-gray-700 dark:text-dl-dt flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-base text-primary dark:text-accent">description</span>
-          Describe the issue
-          <span className="text-xs font-normal text-gray-400 dark:text-dl-dt2">(optional but helpful)</span>
-        </label>
-        <textarea
-          value={desc}
-          onChange={e => setDesc(e.target.value)}
-          placeholder="e.g. Screen cracked, won't turn on, battery drains very fast…"
-          rows={3}
-          className="
-            w-full rounded-xl border border-gray-200 dark:border-dl-dark-b
-            bg-white dark:bg-dl-dark-s
-            text-gray-900 dark:text-dl-dt text-sm
-            placeholder:text-gray-300 dark:placeholder:text-dl-dt2/50
-            px-4 py-3 outline-none resize-none
-            focus:border-primary dark:focus:border-accent
-            focus:ring-2 focus:ring-primary/10 dark:focus:ring-accent/10
-            transition-colors
-          "
-        />
-      </section>
-
-      {/* ── DEVICE NAME (OPTIONAL) ───────────────────────────────────────────────── */}
-      <section className="space-y-2">
-        <label className="text-sm font-semibold text-gray-700 dark:text-dl-dt flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-base text-primary dark:text-accent">badge</span>
-          Device name
-          <span className="text-xs font-normal text-gray-400 dark:text-dl-dt2">(speeds up analysis)</span>
+        <label htmlFor="device-name" className="text-sm font-semibold text-gray-800 dark:text-dl-dt">
+          Known device name <span className="font-normal text-gray-400 dark:text-dl-dt2">(optional)</span>
         </label>
         <input
-          type="text"
+          id="device-name"
           value={manualName}
-          onChange={e => setManualName(e.target.value)}
-          placeholder="e.g. iPhone 15 Pro Max, Samsung Galaxy S24…"
-          className="
-            w-full rounded-xl border border-gray-200 dark:border-dl-dark-b
-            bg-white dark:bg-dl-dark-s
-            text-gray-900 dark:text-dl-dt text-sm
-            placeholder:text-gray-300 dark:placeholder:text-dl-dt2/50
-            px-4 py-3 outline-none
-            focus:border-primary dark:focus:border-accent
-            focus:ring-2 focus:ring-primary/10 dark:focus:ring-accent/10
-            transition-colors
-          "
+          onChange={event => setManualName(event.target.value)}
+          maxLength={120}
+          placeholder="e.g. Dell G15 5535, iPhone 15 Pro"
+          className="w-full rounded-xl border border-gray-200 dark:border-dl-dark-b bg-white dark:bg-dl-dark-s text-gray-900 dark:text-dl-dt text-sm px-4 py-3 outline-none focus:border-primary dark:focus:border-accent"
         />
+        <p className="text-[11px] text-gray-400 dark:text-dl-dt2">DeviceLens will still check whether the photos support the name you give it.</p>
       </section>
 
-      {/* ── SUBMIT ──────────────────────────────────────────────────────────────── */}
-      <div className="space-y-2 pt-2">
-        {/* Scan counter */}
-        {(() => {
-          const used = getScansUsedToday();
-          const limit = getDailyLimit(user?.is_premium ?? false);
-          const remaining = limit - used;
-          const nearLimit = remaining <= 3 && remaining > 0;
-          const atLimit = remaining <= 0;
-          return (
-            <div className="flex items-center justify-between px-1">
-              <p className="text-xs text-gray-400 dark:text-dl-dt2">
-                {atLimit
-                  ? `Limit reached · resets in ${timeUntilReset()}`
-                  : `${remaining} of ${limit} scans left today`}
-              </p>
-              {nearLimit && !user?.is_premium && (
-                <button
-                  onClick={() => setShowPremiumModal(true)}
-                  className="text-xs font-semibold text-primary dark:text-accent hover:underline"
-                >
-                  Go Pro →
-                </button>
-              )}
-            </div>
-          );
-        })()}
+      <section className="space-y-2">
+        <label htmlFor="symptoms" className="text-sm font-semibold text-gray-800 dark:text-dl-dt">
+          What is happening? <span className="font-normal text-gray-400 dark:text-dl-dt2">(recommended)</span>
+        </label>
+        <textarea
+          id="symptoms"
+          value={description}
+          onChange={event => setDescription(event.target.value)}
+          maxLength={1200}
+          rows={4}
+          placeholder="Describe what happened, what you see or hear, when it started, and anything you already tried."
+          className="w-full rounded-xl border border-gray-200 dark:border-dl-dark-b bg-white dark:bg-dl-dark-s text-gray-900 dark:text-dl-dt text-sm px-4 py-3 outline-none resize-none focus:border-primary dark:focus:border-accent"
+        />
+        <div className="flex justify-end">
+          <span className="text-[10px] font-mono text-gray-400 dark:text-dl-dt2">{description.length}/1200</span>
+        </div>
+      </section>
 
-        {images.length === 0 && (
-          <p className="text-center text-xs text-gray-400 dark:text-dl-dt2 font-medium">
-            Add at least one photo to start
-          </p>
-        )}
-        <button
-          disabled={images.length === 0 || !canScan(user?.is_premium ?? false)}
-          onClick={handleAudit}
-          className="
-            w-full py-4 rounded-xl font-bold text-base text-white
-            bg-primary hover:bg-primary-700
-            dark:bg-accent dark:text-dl-dark dark:hover:bg-blue-300
-            shadow-card dark:shadow-glow
-            disabled:opacity-30 disabled:cursor-not-allowed
-            active:scale-[0.98] transition-all
-          "
-        >
-          Analyze Device
-        </button>
-      </div>
+      <section className="rounded-xl bg-amber-50 dark:bg-warning-d/10 border border-amber-200 dark:border-warning-d/20 p-3 flex gap-2">
+        <span className="material-symbols-outlined text-warning dark:text-warning-d text-lg">health_and_safety</span>
+        <p className="text-xs text-amber-800 dark:text-warning-d leading-relaxed">
+          Do not open or keep using a device that is swollen, smoking, burning, wet, sparking, or connected to dangerous voltage.
+        </p>
+      </section>
+
+      <button
+        type="button"
+        disabled={images.length === 0}
+        onClick={handleAudit}
+        className="w-full py-4 rounded-xl font-bold text-base text-white bg-primary hover:bg-primary-700 dark:bg-accent dark:text-dl-dark dark:hover:bg-blue-300 shadow-card dark:shadow-glow disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.98] transition-all"
+      >
+        Assess Device
+      </button>
     </div>
   );
 };
