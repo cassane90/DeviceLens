@@ -1,4 +1,4 @@
-const CACHE = 'devicelens-v1';
+const CACHE = 'devicelens-v2';
 const STATIC = ['/'];
 
 self.addEventListener('install', e => {
